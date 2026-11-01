@@ -1,5 +1,5 @@
 
-.slim/deepwork/
+.slim/
 node_modules/
 *.tgz
 
