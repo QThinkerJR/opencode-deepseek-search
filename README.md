@@ -64,7 +64,7 @@ Local development points at the repository directory (a config entry must be a *
 ```jsonc
 {
   "plugins": [
-    { "package": "D:/MyDev/opencode-deepseek-search", "options": { "mode": "deepseek" } }
+    { "package": "D:/repos/opencode-deepseek-search", "options": { "mode": "deepseek" } }
   ]
 }
 ```
@@ -185,7 +185,7 @@ contain text that tries to steer the model.
 ## Local development
 
 ```powershell
-cd D:\MyDev\opencode-deepseek-search
+cd D:\repos\opencode-deepseek-search
 npm install
 npm run typecheck     # tsc --noEmit
 npm test              # node --test, pure functions, zero cost
@@ -210,7 +210,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\switch-mode.ps1 nati
 Shorter, via an alias in `$PROFILE`:
 
 ```powershell
-function dsmode { & "D:\MyDev\opencode-deepseek-search\tools\switch-mode.ps1" @args }
+function dsmode { & "D:\repos\opencode-deepseek-search\tools\switch-mode.ps1" @args }
 ```
 
 Layout:
