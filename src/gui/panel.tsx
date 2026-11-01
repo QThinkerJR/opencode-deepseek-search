@@ -1,0 +1,154 @@
+// The desktop side-panel tab: the same states and copy as the TUI card
+// (status-view.ts), composed for a resizable panel instead of a terminal column.
+import type { JSX } from "solid-js"
+import { For, Show, createMemo, onCleanup, onMount } from "solid-js"
+import { usePlugin } from "@opencode/plugin/gui"
+import type { SearchStatus } from "../rpc.ts"
+import { sidebarRows, type SidebarRows } from "../status-view.ts"
+
+export interface DeepSeekPanelProps {
+  readonly status: SearchStatus | undefined
+  readonly error: string | undefined
+  readonly busy: boolean
+  readonly onToggle: () => void
+  readonly onRefresh: () => void
+}
+
+type Tone = SidebarRows["tone"]
+
+/** Text-presentation symbols, never emoji. */
+const GLYPH: Readonly<Record<Tone, string>> = { on: "●", off: "○", warn: "◐", error: "!", idle: "…" }
+
+/**
+ * No theme tokens exist on the desktop side, so the tone is a minimal palette
+ * per mode; text and rules otherwise inherit the host's color.
+ */
+const INK = {
+  dark: { on: "#63d19a", warn: "#e0ad4f", error: "#ee7b74", off: "#8b9198", idle: "#8b9198", rule: "rgba(255,255,255,0.14)" },
+  light: { on: "#1e7a4c", warn: "#8a5f08", error: "#b03931", off: "#6b7076", idle: "#6b7076", rule: "rgba(0,0,0,0.13)" },
+} as const
+
+const LABEL: Readonly<Record<Tone, string>> = {
+  on: "停用（交还原生搜索）", off: "启用（由 DeepSeek 接管）",
+  warn: "交还原生搜索", error: "重试", idle: "重试",
+}
+
+const ICON = { on: "arrow-undo-down", off: "globe", warn: "arrow-undo-down", error: "refresh", idle: "refresh" } as const
+
+/** The product name is chrome; the state after ` · ` is the message. */
+function headline(title: string, accent: string): JSX.Element {
+  const at = title.indexOf(" · ")
+  if (at < 0) return <span style={{ color: accent }}>{title}</span>
+  return (
+    <>
+      <span style={{ opacity: 0.6, "font-weight": 400 }}>{title.slice(0, at)}</span>
+      <span style={{ opacity: 0.3, "font-weight": 400 }}>{" · "}</span>
+      <span style={{ color: accent }}>{title.slice(at + 3)}</span>
+    </>
+  )
+}
+
+/** `今日 搜索 3 · 抓取 5 · …` → its label and ` · ` chunks, so values wrap as whole stats. */
+function splitLine(line: string): { readonly label: string; readonly chunks: readonly string[] } {
+  const at = line.indexOf(" ")
+  return at < 0 ? { label: line, chunks: [] } : { label: line.slice(0, at), chunks: line.slice(at + 1).split(" · ") }
+}
+
+/** The fix-it row: the env var name is an identifier, so give it the mono font. */
+function help(action: string, mono: string): JSX.Element {
+  const key = "DEEPSEEK_API_KEY"
+  const at = action.indexOf(key)
+  if (at < 0) return <>{action}</>
+  return (
+    <>
+      {action.slice(0, at)}<code style={{ "font-family": mono, "font-size": "0.94em" }}>{key}</code>{action.slice(at + key.length)}
+    </>
+  )
+}
+
+export function DeepSeekPanel(props: DeepSeekPanelProps): JSX.Element {
+  const ctx = usePlugin()
+  const rows = createMemo(() => sidebarRows({ status: props.status, error: props.error, maxColumns: Infinity }))
+  const ink = createMemo(() => INK[ctx.appearance.mode()])
+  const mono = () => ctx.appearance.font("mono")
+
+  // Cross-half `changed` delivery is the one runtime behaviour this repo cannot
+  // verify, so the panel rereads on its own timer while it is mounted — the same
+  // fallback the TUI sidebar uses.
+  onMount(() => {
+    const timer = setInterval(() => props.onRefresh(), 10_000)
+    onCleanup(() => clearInterval(timer))
+  })
+
+  return (
+    <div
+      aria-busy={props.busy || undefined}
+      style={{
+        display: "flex", "flex-direction": "column", height: "100%", "min-width": 0,
+        "box-sizing": "border-box", padding: "16px 16px 24px", "overflow-y": "auto", "overflow-x": "hidden",
+      }}
+    >
+      <header style={{ display: "flex", "align-items": "flex-start", gap: "8px" }}>
+        <span aria-hidden="true" style={{ "flex-shrink": 0, "font-size": "10px", "line-height": "20px", "font-weight": 700, color: ink()[rows().tone] }}>
+          {GLYPH[rows().tone]}
+        </span>
+        <h2 aria-live="polite" style={{ flex: 1, "min-width": 0, margin: 0, "font-size": "13px", "font-weight": 600, "line-height": "20px", "overflow-wrap": "anywhere" }}>
+          {headline(rows().title, ink()[rows().tone])}
+        </h2>
+        <ctx.ui.Tooltip value="刷新用量" placement="bottom">
+          <ctx.ui.IconButton icon="refresh" label="刷新用量" size="small" onClick={props.onRefresh} />
+        </ctx.ui.Tooltip>
+      </header>
+
+      {props.status === undefined ? (
+        rows().lines.length > 0 ? (
+          <p style={{ margin: "14px 0 0", "font-size": "12px", "line-height": 1.6, opacity: 0.7, "overflow-wrap": "anywhere" }}>{rows().lines[0]}</p>
+        ) : (
+          <div style={{ display: "flex", "align-items": "center", gap: "8px", "margin-top": "14px", opacity: 0.7 }}>
+            <ctx.ui.Loader size="small" />
+            <span style={{ "font-size": "12px" }}>正在读取用量…</span>
+          </div>
+        )
+      ) : (
+        <dl style={{ margin: "16px 0 0", "border-top": `1px solid ${ink().rule}`, "border-bottom": `1px solid ${ink().rule}` }}>
+          <For each={rows().lines}>
+            {(line, index) => {
+              const parts = splitLine(line)
+              return (
+                <div style={{ display: "flex", "align-items": "baseline", gap: "12px", padding: "10px 0", "border-top": index() > 0 ? `1px solid ${ink().rule}` : undefined }}>
+                  <dt style={{ "flex-shrink": 0, "font-size": "11px", "letter-spacing": "0.08em", "line-height": "1.9", opacity: 0.62 }}>
+                    {parts.label}
+                  </dt>
+                  <dd style={{
+                    margin: 0, "margin-left": "auto", "min-width": 0, display: "flex", "flex-wrap": "wrap", "justify-content": "flex-end",
+                    "column-gap": "6px", "row-gap": "2px", "font-family": mono(), "font-size": "13px", "line-height": "1.55",
+                    "font-variant-numeric": "tabular-nums", "text-align": "right",
+                  }}>
+                    <For each={parts.chunks}>
+                      {(chunk, i) => (
+                        <span style={{ "min-width": 0, "overflow-wrap": "anywhere", "font-weight": chunk.startsWith("¥") ? 500 : 400, opacity: chunk.startsWith("¥") ? 1 : 0.8 }}>
+                          {chunk}{i() < parts.chunks.length - 1 ? " ·" : ""}
+                        </span>
+                      )}
+                    </For>
+                  </dd>
+                </div>
+              )
+            }}
+          </For>
+        </dl>
+      )}
+
+      <Show when={!rows().clickable}>
+        <p style={{ margin: "16px 0 0", "font-size": "12px", "line-height": 1.6, opacity: 0.68, "overflow-wrap": "anywhere" }}>{help(rows().action, mono())}</p>
+      </Show>
+      <Show when={rows().clickable && rows().tone !== "idle"}>
+        <div style={{ "margin-top": "18px" }}>
+          <ctx.ui.Button variant={rows().tone === "off" || rows().tone === "error" ? "contrast" : "neutral"} icon={ICON[rows().tone]} disabled={props.busy} busy={props.busy} onClick={props.onToggle}>
+            {LABEL[rows().tone]}
+          </ctx.ui.Button>
+        </div>
+      </Show>
+    </div>
+  )
+}

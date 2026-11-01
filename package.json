@@ -1,4 +1,4 @@
-﻿{
+{
     "name":  "@qthinker/opencode-deepseek-search",
     "version":  "0.1.1",
     "description":  "DeepSeek Search \u0026 Fetch for OpenCode V2: a switchable websearch backend, clean Markdown fetch, and local usage/cost stats",
@@ -26,6 +26,7 @@
     "files":  [
                   "index.ts",
                   "tui.ts",
+                  "gui-experimental.cjs",
                   "src",
                   "README.md",
                   "LICENSE"
@@ -34,10 +35,11 @@
                     "node":  "\u003e=22.18"
                 },
     "scripts":  {
-                    "typecheck":  "tsc --noEmit",
+                    "typecheck":  "tsc --noEmit \u0026\u0026 tsc --noEmit -p tsconfig.gui.json",
                     "test":  "node --test test/*.test.ts",
+                    "build:gui":  "vite build",
                     "smoke":  "node --experimental-strip-types scripts/smoke.ts",
-                    "prepublishOnly":  "npm run typecheck \u0026\u0026 npm test"
+                    "prepublishOnly":  "npm run typecheck \u0026\u0026 npm test \u0026\u0026 npm run build:gui"
                 },
     "peerDependencies":  {
                              "@opencode/plugin":  "\u003e=2.2.5",
@@ -70,7 +72,9 @@
                             "@opentui/solid":  "^0.8.0",
                             "@types/node":  "^24.0.0",
                             "solid-js":  "^1.9.0",
-                            "typescript":  "^5.9.0"
+                            "typescript":  "^5.9.0",
+                            "vite":  "^7.3.7",
+                            "vite-plugin-solid":  "^2.11.10"
                         },
     "main":  "./index.ts",
     "publishConfig":  {

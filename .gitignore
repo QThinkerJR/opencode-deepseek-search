@@ -2,4 +2,5 @@
 .slim/
 node_modules/
 *.tgz
+gui-experimental.cjs
 

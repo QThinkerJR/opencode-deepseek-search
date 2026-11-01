@@ -4,8 +4,8 @@ import type { JSX } from "@opentui/solid"
 import type { ResolvedTheme } from "@opencode/theme/tui"
 import { createElement, insert, setProp } from "@opentui/solid"
 import type { SearchStatus } from "../rpc.ts"
-import { sidebarRows } from "./view.ts"
-import type { SidebarRows } from "./view.ts"
+import { sidebarRows } from "../status-view.ts"
+import type { SidebarRows } from "../status-view.ts"
 
 type Node = ReturnType<typeof createElement>
 type Child = string | Node

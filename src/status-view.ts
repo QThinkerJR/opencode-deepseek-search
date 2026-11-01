@@ -1,10 +1,12 @@
 // Pure view model for the sidebar card. No renderer, no runtime dependency:
 // the card and the tests both derive their text from here.
-import type { SearchStatus } from "../rpc.ts"
+import type { SearchStatus } from "./rpc.ts"
 
 export interface SidebarInput {
   readonly status: SearchStatus | undefined
   readonly error: string | undefined
+  /** Columns available for a free-form error row. Defaults to the TUI sidebar width. */
+  readonly maxColumns?: number
 }
 
 export interface SidebarRows {
@@ -22,7 +24,8 @@ export interface SidebarRows {
 
 const NAME = "DeepSeek 搜索"
 // One body row has a full line of its own; leave a little room for the host's
-// sidebar padding at the narrowest width.
+// sidebar padding at the narrowest width. Callers with more room (the desktop
+// panel wraps instead of clipping) pass their own limit.
 const MAX_MESSAGE_COLUMNS = 24
 
 /** Terminal columns of one code point; only CJK-style wide ranges matter here. */
@@ -47,14 +50,14 @@ function columns(char: string): number {
 }
 
 /** One body line, never wrapped: clip a free-form error to the available columns. */
-function shortMessage(message: string): string {
+function shortMessage(message: string, maxColumns: number): string {
   const text = message.replace(/\s+/g, " ").trim()
   if (!text) return "读取失败"
   let out = ""
   let used = 0
   for (const char of text) {
     const width = columns(char)
-    if (used + width > MAX_MESSAGE_COLUMNS - 1) return `${out}…`
+    if (used + width > maxColumns - 1) return `${out}…`
     out += char
     used += width
   }
@@ -77,7 +80,7 @@ export function sidebarRows(input: SidebarInput): SidebarRows {
           title: `${NAME} · 读取失败`,
           action: "点击重试",
           clickable: true,
-          lines: [shortMessage(error)],
+          lines: [shortMessage(error, input.maxColumns ?? MAX_MESSAGE_COLUMNS)],
           tone: "error",
         }
   }

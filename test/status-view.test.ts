@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
-import { sidebarRows } from "../src/tui/view.ts"
+import { sidebarRows } from "../src/status-view.ts"
 import type { SearchStatus } from "../src/rpc.ts"
 
 // Copy is still being tuned by the view lane, so assertions stay structural:

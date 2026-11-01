@@ -127,6 +127,30 @@ deepseek_mode 开关（storage: mode/v1）  >  options.mode  >  内置默认
 > deepseek 模式下不再弹出「选择搜索 provider」表单。若某些版本找不到该工具，`deepseek_mode` 会明确提示
 > 「无法在运行时切换」，此时用配置 `websearch.provider` 兜底。
 
+## TUI 与桌面侧边栏
+
+插件也出现在你干活的地方，并且可以不经模型、不改配置文件直接切换：
+
+| 面 | 你会看到 | 怎么切 |
+|---|---|---|
+| TUI | 会话侧边栏末尾追加一块 DeepSeek：状态行 + 今日 / 本月 / 累计（`搜索` · `抓取` · `空/失` · `¥` 估算） | 点动作行，或用 `/deepseek` 斜杠命令打开菜单 |
+| 桌面 | 会话侧区域的 **DeepSeek** 页签，用命令 `DeepSeek: 打开统计面板` 打开 | 面板上的按钮，另有刷新按钮 |
+
+- 两个面读的是同一份账本和同一个持久化开关（与 `deepseek_usage` / `deepseek_mode` 完全一致）：数据只有服务端
+  一份真相，经插件自己的 RPC 取用，TUI 与桌面的数字不会分叉。
+- **「停用」= 把内置 `websearch` 交还给你配置的后端**（等价于 `deepseek_mode({"mode": "native"})`），不是卸载：
+  `deepseek_fetch`、`deepseek_usage`、`deepseek_mode` 仍然注册，状态同样落在 `mode/v1`。
+- 动作行只说点击真的会做什么。没有配置 API Key 时没有可做的动作，就显示该怎么修（`DEEPSEEK_API_KEY`）；
+  内置工具没能打上补丁时显示「未接管」，而不是假装已启用。
+- 每次记账与每次切换后都会发 `changed` 事件触发刷新，两个面另有 10 秒重读作为兜底。
+
+桌面半边以预构建的 CommonJS bundle（`gui-experimental.cjs`）发布：npm 安装自带；如果你从源码目录跑，需要构建一次
+（TUI 半边零构建，和服务端一样直接加载 TypeScript）：
+
+```bash
+npm install && npm run build:gui
+```
+
 ## 用量与费用
 
 | 计数 | 触发条件 | 计费 |
@@ -202,13 +226,20 @@ function dsmode { & "D:\repos\opencode-deepseek-search\tools\switch-mode.ps1" @a
 
 ```
 index.ts              # 目录型插件入口，re-export src/index.ts
+tui.ts                # TUI 入口，re-export src/tui/main.ts
 src/index.ts          # 插件本体：选项、注册、接管 websearch、三个工具
 src/deepseek.ts       # HTTP 核心：超时/取消、单次退避重试、中文错误、结果映射
 src/usage.ts          # 纯账本：微元计价、60 天裁剪、防御性解析、格式化
+src/rpc.ts            # 服务端 / TUI / 桌面三端共享的 RPC 契约
+src/status-view.ts    # 纯视图模型：两个侧边栏的文案都从这里派生
+src/tui/              # TUI 半边：卡片元素树 + 插件接线
+src/gui/              # 桌面半边：侧面板组件 + 插件接线
+vite.config.ts        # 把 src/gui 构建成根目录的 gui-experimental.cjs
 test/*.test.ts        # 纯函数单测
 scripts/smoke.ts      # 真实 API 冒烟（5 步）
+scripts/check-gui-bundle.ts # bundle 形态检查，CI 里在 build:gui 之后跑
 tools/switch-mode.ps1 # 命令行切换后端
-.github/workflows/    # ci（typecheck + test）/ release（tag 触发，OIDC provenance）
+.github/workflows/    # ci（构建 + typecheck + test + bundle 检查）/ release
 ```
 
 两个形态上的坑（都已规避，改动时别踩回去）：
@@ -216,6 +247,9 @@ tools/switch-mode.ps1 # 命令行切换后端
 1. config 里的本地插件条目必须是**目录**，指向单个文件会被丢弃；
 2. `package.json` 不要加 `exports`——带 `name`+`exports` 时 OpenCode 会改按包名解析该目录，
    解析结果落在目录外就被**静默丢弃**（日志无报错，`plugin list` 里直接消失）。
+
+两条对插件的每个半边都成立：`index.ts`、`tui.ts`、`gui-experimental.cjs` 都放在仓库根目录，目录解析与
+安装包解析两条路径都靠这个位置找到它们。`test/packaging.test.ts` 会在 `exports` 被加回来或某个根入口解析不到时失败。
 
 改完源码保存即热重载；验证手法：`opencode plugin list` + 实际搜一次看结果来源。
 
