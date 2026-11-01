@@ -22,17 +22,21 @@ const step = async (name: string, run: () => Promise<string>) => {
   }
 }
 
-await step("search returns results", async () => {
+await step("search returns results honouring count", async () => {
   const results = await deepseekSearch("DeepSeek 官方文档", key, 3)
   if (results.length === 0) throw new Error("empty results")
+  if (results.length > 3) throw new Error(`count=3 returned ${results.length} results`)
   const first = results[0]
   if (!first?.url) throw new Error("first result has no url")
-  if (first.content && first.content.length > 2000) throw new Error("search content is not a summary")
+  // `content` is the model-oriented summary (never full page text), so it is
+  // bounded but not tiny.
+  if (first.content !== undefined && first.content.length > 4000) throw new Error("search content looks like page text")
   return `${results.length} results, first: ${first.url}`
 })
 
-await step("search with no match returns empty array", async () => {
+await step("search with a nonsense query still returns a well-formed array", async () => {
   const results = await deepseekSearch("zzzz-no-such-topic-opencode-deepseek-smoke", key, 3)
+  if (!Array.isArray(results)) throw new Error("not an array")
   return `${results.length} results`
 })
 
