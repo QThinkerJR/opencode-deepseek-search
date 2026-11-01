@@ -13,6 +13,7 @@
 // Options: mode, apiKey, count, fetchMaxChars, pricePerThousand.
 
 import { Plugin } from "@opencode/plugin"
+import type { Result as ToolResult, ToolContext } from "@opencode/plugin/promise/tool"
 import {
   deepseekFetch,
   deepseekSearch,
@@ -39,6 +40,25 @@ const PROVIDER_ID = "deepseek"
 const SEARCH_TOOL = "websearch"
 const FETCH_TOOL = "deepseek_fetch"
 const USAGE_TOOL = "deepseek_usage"
+const MODE_TOOL = "deepseek_mode"
+// Host storage is global to the installation and survives restarts, so the
+// `deepseek_mode` switch outlives the process without touching the config file.
+const MODE_KEY = "mode/v1"
+
+type Mode = "deepseek" | "native"
+type ModeAction = "status" | Mode | "config"
+
+const SEARCH_TOOL_DESCRIPTION =
+  "Search the web using DeepSeek Search. Use this for current information beyond knowledge cutoff." +
+  `\n\nThe current year is ${new Date().getFullYear()}. Use this year when searching for recent information or current events.`
+
+function readModeAction(input: unknown): ModeAction {
+  const raw = (input as { mode?: unknown } | undefined)?.mode
+  if (raw === undefined || raw === null || raw === "") return "status"
+  if (raw === "status" || raw === "deepseek" || raw === "native" || raw === "config") return raw
+  throw new Error(`mode 只能是 status / deepseek / native / config，收到：${String(raw)}`)
+}
+
 
 // ---------- defensive option readers (ctx.options values are untyped) ----------
 
@@ -71,7 +91,17 @@ export default Plugin.define({
   id: "deepseek-search",
   async setup(ctx) {
     const opt = (ctx.options ?? {}) as Record<string, unknown>
-    const mode = str(opt.mode) === "native" ? "native" : "deepseek"
+    const configMode: Mode = str(opt.mode) === "native" ? "native" : "deepseek"
+    // Precedence: a persisted `deepseek_mode` switch wins over the config file
+    // until it is cleared with `mode: "config"`.
+    let overrideMode: Mode | undefined
+    try {
+      const stored = str(await ctx.storage.get(MODE_KEY))
+      if (stored === "deepseek" || stored === "native") overrideMode = stored
+    } catch {
+      /* storage unavailable: fall back to the config file */
+    }
+    let mode: Mode = overrideMode ?? configMode
     // Order: options.apiKey (already {env:...}-substituted by the host) > DEEPSEEK_API_KEY.
     // The env fallback is what makes a bare `plugins: ["<package>"]` entry usable.
     const apiKey = str(opt.apiKey) ?? readEnvValue("DEEPSEEK_API_KEY") ?? ""
@@ -122,43 +152,77 @@ export default Plugin.define({
       if (mode === "deepseek") editor.default.set(PROVIDER_ID)
     })
 
+    // ---------- built-in websearch: patch / restore ----------
+    // `pristine` is refreshed on every state rebuild, before any patch, so a
+    // restore always uses the host's current implementation (never a stale
+    // closure captured from a previous rebuild).
+    let pristine:
+      | { execute: (input: unknown, context: ToolContext) => Promise<ToolResult>; description: string }
+      | undefined
+    let searchToolPatched = false
+
+    const deepseekSearchExecute = async (input: unknown, context: ToolContext): Promise<ToolResult> => {
+      const query = readQuery(input)
+      const problem = validateQuery(query)
+      if (problem) throw new Error(problem)
+      await ctx.permission.assert({
+        sessionID: context.sessionID,
+        agent: context.agent,
+        action: SEARCH_TOOL,
+        resources: [query],
+        save: ["*"],
+        metadata: { query },
+        source: { type: "tool", messageID: context.messageID, id: context.id },
+      })
+      // Mirror the built-in tool's progress update so long searches are not silent.
+      await context.progress({ provider: PROVIDER_ID })
+      const results = await runSearch(query, context.signal)
+      return {
+        output: { provider: PROVIDER_ID, results },
+        content: formatSearchResults(results),
+        metadata: { provider: PROVIDER_ID },
+      }
+    }
+
+    // Registers one more transform that repaints the built-in tool. Transforms
+    // replay in registration order on every rebuild, so the newest switch wins.
+    const applySearchMode = async (next: Mode): Promise<boolean> => {
+      if (!pristine) return false
+      await ctx.tool.transform((editor) => {
+        editor.update(SEARCH_TOOL, (tool) => {
+          if (next === "deepseek") {
+            tool.description = SEARCH_TOOL_DESCRIPTION
+            tool.execute = deepseekSearchExecute
+          } else {
+            tool.description = pristine!.description
+            tool.execute = pristine!.execute
+          }
+        })
+      })
+      mode = next
+      searchToolPatched = next === "deepseek"
+      return true
+    }
+
+    const describeMode = (): string =>
+      `当前搜索后端: ${mode}（来源: ${overrideMode ? "deepseek_mode 开关，已持久化" : "配置文件 options.mode"}）` +
+      (mode === "deepseek" ? " · 内置 websearch 已由 DeepSeek 接管" : " · 内置 websearch 保持原生")
+
     // ---------- tools ----------
-    let patchedSearchTool = false
     await ctx.tool.transform((editor) => {
+      const builtin = editor.get(SEARCH_TOOL)
+      if (builtin) pristine = { execute: builtin.execute, description: builtin.description }
+
       // Patch the built-in tool (it is registered before plugins). In native
       // mode it is left untouched so the configured/built-in provider serves it.
       // The patch keeps the built-in permission check and the declared output
       // shape, so the tool behaves identically apart from the backend.
-      if (mode === "deepseek" && editor.get(SEARCH_TOOL)) {
+      if (mode === "deepseek" && builtin) {
         editor.update(SEARCH_TOOL, (tool) => {
-          // Keep the model-facing intent, but name the backend it now reaches.
-          tool.description =
-            "Search the web using DeepSeek Search. Use this for current information beyond knowledge cutoff." +
-            `\n\nThe current year is ${new Date().getFullYear()}. Use this year when searching for recent information or current events.`
-          tool.execute = async (input, context) => {
-            const query = readQuery(input)
-            const problem = validateQuery(query)
-            if (problem) throw new Error(problem)
-            await ctx.permission.assert({
-              sessionID: context.sessionID,
-              agent: context.agent,
-              action: SEARCH_TOOL,
-              resources: [query],
-              save: ["*"],
-              metadata: { query },
-              source: { type: "tool", messageID: context.messageID, id: context.id },
-            })
-            // Mirror the built-in tool's progress update so long searches are not silent.
-            await context.progress({ provider: PROVIDER_ID })
-            const results = await runSearch(query, context.signal)
-            return {
-              output: { provider: PROVIDER_ID, results },
-              content: formatSearchResults(results),
-              metadata: { provider: PROVIDER_ID },
-            }
-          }
+          tool.description = SEARCH_TOOL_DESCRIPTION
+          tool.execute = deepseekSearchExecute
         })
-        patchedSearchTool = true
+        searchToolPatched = true
       }
 
       // The built-in webfetch is deliberately NOT overridden: a losing override
@@ -223,15 +287,62 @@ export default Plugin.define({
           return { content: report }
         },
       })
+
+      editor.add({
+        name: MODE_TOOL,
+        description:
+          "Show or change which backend serves the built-in websearch tool. " +
+          'mode "deepseek" routes search to DeepSeek, "native" leaves the built-in backend alone, ' +
+          '"config" clears the stored override so the config file decides again, ' +
+          '"status" (default) only reports the current backend. ' +
+          "A deepseek/native switch is stored locally and survives restarts.",
+        input: {
+          type: "object",
+          properties: {
+            mode: {
+              type: "string",
+              enum: ["status", "deepseek", "native", "config"],
+              description: "status (default) | deepseek | native | config",
+            },
+          },
+          additionalProperties: false,
+        },
+        execute: async (input) => {
+          const action = readModeAction(input)
+          if (action === "status") return { content: describeMode() }
+          if (!pristine) {
+            return {
+              content:
+                `未找到内置 ${SEARCH_TOOL} 工具，无法在运行时切换。` +
+                `请改用配置文件把 options.mode 设为 "${action === "config" ? configMode : action}"。`,
+            }
+          }
+          if (action === "config") {
+            await ctx.storage.remove(MODE_KEY)
+            overrideMode = undefined
+            await applySearchMode(configMode)
+            return { content: `${describeMode()}\n\n已清除持久化开关，回到配置文件设置（${configMode}）。` }
+          }
+          await ctx.storage.set(MODE_KEY, action)
+          overrideMode = action
+          await applySearchMode(action)
+          return {
+            content:
+              `${describeMode()}\n\n已持久化：重启 OpenCode 后仍为 ${action}。` +
+              '要恢复配置文件设置，调用 deepseek_mode 并传 mode: "config"。',
+          }
+        },
+      })
     })
 
     // Load marker for diagnostics; never logs the key itself.
     console.error(
-      `[deepseek-search] loaded: mode=${mode} apiKey=${apiKey ? "present" : "MISSING"} count=${count} ` +
-        `searchTool=${patchedSearchTool ? "deepseek" : "untouched"}`,
+      `[deepseek-search] loaded: mode=${mode} source=${overrideMode ? "override" : "config"} ` +
+        `apiKey=${apiKey ? "present" : "MISSING"} count=${count} ` +
+        `searchTool=${searchToolPatched ? "deepseek" : "untouched"}`,
     )
     if (!apiKey) console.error(`[deepseek-search] ${missingKeyMessage()}`)
-    if (mode === "deepseek" && !patchedSearchTool)
+    if (mode === "deepseek" && !searchToolPatched)
       console.error(
         `[deepseek-search] 警告：未找到内置 ${SEARCH_TOOL} 工具，搜索仍走内置后端。` +
           `可在 opencode.jsonc 设置 "websearch": { "provider": "${PROVIDER_ID}" } 强制路由。`,

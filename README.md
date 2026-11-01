@@ -93,6 +93,19 @@ written for models) or `snippet` — never the full page text, and `need_content
 
 **`deepseek_usage`** — ask the model *"how many searches did I make and what did they cost?"*.
 
+**`deepseek_mode`** — switch the backend without editing the config file:
+
+| Call | Effect |
+|---|---|
+| `deepseek_mode` (or `{"mode": "status"}`) | report the current backend and where it comes from |
+| `deepseek_mode({"mode": "deepseek"})` | route the built-in `websearch` tool to DeepSeek |
+| `deepseek_mode({"mode": "native"})` | leave the built-in backend alone again |
+| `deepseek_mode({"mode": "config"})` | clear the stored switch so `options.mode` decides again |
+
+The choice is written to OpenCode's local plugin storage (`mode/v1`) — **global to the installation and persisted across
+restarts** — and it takes precedence over `options.mode`. Your config file is never modified, and `mode: "config"` is the
+one-command way back to it.
+
 ## Usage and cost
 
 | Counter | Counted when | Billed |

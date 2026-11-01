@@ -88,6 +88,18 @@
 
 **`deepseek_usage`**：直接问模型「我搜了几次、花了多少钱」。
 
+**`deepseek_mode`**：不碰配置文件就能切换后端。
+
+| 调用 | 效果 |
+|---|---|
+| `deepseek_mode`（或 `{"mode": "status"}`） | 报告当前后端与来源 |
+| `deepseek_mode({"mode": "deepseek"})` | 内置 `websearch` 改走 DeepSeek |
+| `deepseek_mode({"mode": "native"})` | 内置 `websearch` 回到原生后端 |
+| `deepseek_mode({"mode": "config"})` | 清除持久化开关，回到 `options.mode` 的值 |
+
+开关写在 OpenCode 本地插件存储（`mode/v1`，**整机全局、跨重启保留**），**优先级高于 `options.mode`**；
+配置文件本身不会被改动，`mode: "config"` 是一键回到配置文件的方式。
+
 ## 用量与费用
 
 | 计数 | 触发条件 | 计费 |
