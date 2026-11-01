@@ -131,6 +131,10 @@ export default Plugin.define({
       // shape, so the tool behaves identically apart from the backend.
       if (mode === "deepseek" && editor.get(SEARCH_TOOL)) {
         editor.update(SEARCH_TOOL, (tool) => {
+          // Keep the model-facing intent, but name the backend it now reaches.
+          tool.description =
+            "Search the web using DeepSeek Search. Use this for current information beyond knowledge cutoff." +
+            `\n\nThe current year is ${new Date().getFullYear()}. Use this year when searching for recent information or current events.`
           tool.execute = async (input, context) => {
             const query = readQuery(input)
             const problem = validateQuery(query)
@@ -144,6 +148,8 @@ export default Plugin.define({
               metadata: { query },
               source: { type: "tool", messageID: context.messageID, id: context.id },
             })
+            // Mirror the built-in tool's progress update so long searches are not silent.
+            await context.progress({ provider: PROVIDER_ID })
             const results = await runSearch(query, context.signal)
             return {
               output: { provider: PROVIDER_ID, results },

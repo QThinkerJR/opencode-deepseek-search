@@ -77,12 +77,14 @@ re-run in place, no `/reload` or service restart needed.
 ## What you get
 
 **`websearch` (unchanged name, unchanged input).** In `deepseek` mode the built-in tool is rerouted to DeepSeek, so
-the model needs no prompt changes and sees the same tool. Results carry `summary` (600–800 chars, written for
-models) or `snippet` — never the full page text, and `need_content` is never requested.
+the model needs no prompt changes and sees the same tool. The patch keeps the built-in permission check and the
+declared output shape, so approval prompts and rendering are unchanged. Results carry `summary` (600–800 chars,
+written for models) or `snippet` — never the full page text, and `need_content` is never requested.
 
 > Why the tool is rerouted instead of relying on a provider default: in 2.2.5, a plugin's
 > `websearch.default.set()` is overwritten by the built-in config plugin registered later, so the tool keeps using
-> the built-in provider. The plugin therefore patches the built-in tool itself. If the built-in tool cannot be
+> the built-in provider. The plugin therefore patches the built-in tool itself; the built-in permission check is kept,
+> while the "choose a search provider" form never appears in deepseek mode. If the built-in tool cannot be
 > found (other versions), the provider registration remains and you can force routing with
 > `"websearch": { "provider": "deepseek" }` in the config file.
 

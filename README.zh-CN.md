@@ -75,12 +75,13 @@
 ## 具体提供什么
 
 **`websearch`（名字与入参都不变）**：`deepseek` 模式下把内置工具改接到 DeepSeek，模型无需任何提示词改动。
-结果只带 `summary`（600–800 字，本就写给模型读）或退化的 `snippet`，**永不返回网页全文**，也从不请求
-`need_content`。
+改接保留内置的权限确认与 `output` 结构，审批提示与渲染都不变。结果只带 `summary`（600–800 字，本就写给
+模型读）或退化的 `snippet`，**永不返回网页全文**，也从不请求 `need_content`。
 
 > 为什么是改接工具而不是设 provider 默认值：在 2.2.5 里，插件调用 `websearch.default.set()` 会被更晚注册的
-> 内置 config 插件覆盖，工具仍然用内置 provider。所以插件直接接管内置工具。若某些版本找不到该工具，
-> provider 注册仍在，可用配置 `"websearch": { "provider": "deepseek" }` 强制路由。
+> 内置 config 插件覆盖，工具仍然用内置 provider。所以插件直接接管内置工具：内置的权限确认照旧，只是
+> deepseek 模式下不再弹出「选择搜索 provider」表单。若某些版本找不到该工具，provider 注册仍在，可用配置
+> `"websearch": { "provider": "deepseek" }` 强制路由。
 
 **`deepseek_fetch`**：一个 URL 进，干净 Markdown 出，带标题与来源行；超长页面按 `fetchMaxChars` 截断并以
 `[DeepSeek Fetch 截断提示]` 结尾。不会覆盖内置 `webfetch`。
