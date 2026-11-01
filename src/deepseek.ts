@@ -274,3 +274,20 @@ export function validateQuery(query: string): string | undefined {
   if (query.length > MAX_QUERY_CHARS) return `搜索词过长（${query.length} 字符，上限 ${MAX_QUERY_CHARS}），请精简后重试。`
   return undefined
 }
+
+// Rendered exactly like the built-in websearch tool: one `## [title](url)` block
+// per result, `summary` as the body, no JSON wrapper.
+export const NO_RESULTS = "No search results found. Please try a different query."
+
+export function formatSearchResults(results: readonly SearchResult[]): string {
+  if (results.length === 0) return NO_RESULTS
+  return results
+    .map((result) => {
+      const title = result.title ?? result.url
+      const published = result.time.published
+        ? `\nPublished: ${new Date(result.time.published).toISOString()}`
+        : ""
+      return `## [${title}](${result.url})${published}${result.content ? `\n\n${result.content}` : ""}`
+    })
+    .join("\n\n")
+}

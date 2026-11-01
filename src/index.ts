@@ -16,6 +16,7 @@ import { Plugin } from "@opencode/plugin"
 import {
   deepseekFetch,
   deepseekSearch,
+  formatSearchResults,
   missingKeyMessage,
   validateQuery,
   validateUrl,
@@ -63,17 +64,8 @@ function readQuery(input: unknown): string {
     : ""
 }
 
-// Search results are rendered as plain Markdown: `summary` is already written
-// for models, so no full page text and no JSON wrapper.
-export function formatSearchResults(results: readonly SearchResult[]): string {
-  if (results.length === 0) return "DeepSeek Search 没有返回结果。可改写搜索词，或放宽 site:/after: 等限定。"
-  return results
-    .map((r, i) => {
-      const body = r.content ? `\n${r.content}` : ""
-      return `${i + 1}. ${r.title ?? "(无标题)"}\n${r.url}${body}`
-    })
-    .join("\n\n")
-}
+// Search results are rendered by `formatSearchResults`; nothing else of the
+// built-in tool's behaviour is duplicated here.
 
 export default Plugin.define({
   id: "deepseek-search",
@@ -135,12 +127,30 @@ export default Plugin.define({
     await ctx.tool.transform((editor) => {
       // Patch the built-in tool (it is registered before plugins). In native
       // mode it is left untouched so the configured/built-in provider serves it.
+      // The patch keeps the built-in permission check and the declared output
+      // shape, so the tool behaves identically apart from the backend.
       if (mode === "deepseek" && editor.get(SEARCH_TOOL)) {
         editor.update(SEARCH_TOOL, (tool) => {
-          tool.execute = async (input, context) => ({
-            content: formatSearchResults(await runSearch(readQuery(input), context.signal)),
-            metadata: { provider: PROVIDER_ID },
-          })
+          tool.execute = async (input, context) => {
+            const query = readQuery(input)
+            const problem = validateQuery(query)
+            if (problem) throw new Error(problem)
+            await ctx.permission.assert({
+              sessionID: context.sessionID,
+              agent: context.agent,
+              action: SEARCH_TOOL,
+              resources: [query],
+              save: ["*"],
+              metadata: { query },
+              source: { type: "tool", messageID: context.messageID, id: context.id },
+            })
+            const results = await runSearch(query, context.signal)
+            return {
+              output: { provider: PROVIDER_ID, results },
+              content: formatSearchResults(results),
+              metadata: { provider: PROVIDER_ID },
+            }
+          }
         })
         patchedSearchTool = true
       }

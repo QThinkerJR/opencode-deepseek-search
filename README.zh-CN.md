@@ -70,7 +70,7 @@
 | `apiKey` | string | `DEEPSEEK_API_KEY` | 通常写 `"{env:DEEPSEEK_API_KEY}"`；环境变量未设置时为 `""` |
 | `count` | 1–50 | `5` | 每次返回条数（不影响单价） |
 | `fetchMaxChars` | 500–200000 | `30000` | `deepseek_fetch` 截断上限，截断处有明示 |
-| `pricePerThousand` | 0–10000 | `5` | 元/千次，仅用于本地费用估算 |
+| `pricePerThousand` | 0–10000 | `5` | 元/千次（整数），仅用于本地费用估算 |
 
 ## 具体提供什么
 

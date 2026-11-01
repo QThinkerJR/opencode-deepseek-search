@@ -72,7 +72,7 @@ re-run in place, no `/reload` or service restart needed.
 | `apiKey` | string | `DEEPSEEK_API_KEY` | Usually `"{env:DEEPSEEK_API_KEY}"`; unset env becomes `""` |
 | `count` | 1–50 | `5` | Results per search (does not change the price) |
 | `fetchMaxChars` | 500–200000 | `30000` | Truncation limit for `deepseek_fetch`, with an explicit notice |
-| `pricePerThousand` | 0–10000 | `5` | CNY per 1000 requests, used only for the local cost estimate |
+| `pricePerThousand` | 0–10000 | `5` | CNY per 1000 requests (integer), used only for the local cost estimate |
 
 ## What you get
 

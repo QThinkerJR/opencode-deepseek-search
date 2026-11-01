@@ -3,7 +3,9 @@ import { test } from "node:test"
 import {
   MAX_QUERY_CHARS,
   MAX_URL_CHARS,
+  NO_RESULTS,
   buildSearchBody,
+  formatSearchResults,
   httpError,
   mapFetchResponse,
   mapSearchResults,
@@ -93,6 +95,18 @@ test("validateQuery enforces 1..128 characters", () => {
   assert.equal(validateQuery("open source"), undefined)
   assert.match(validateQuery("") ?? "", /搜索词为空/)
   assert.match(validateQuery("a".repeat(MAX_QUERY_CHARS + 1)) ?? "", /搜索词过长/)
+})
+
+test("formatSearchResults matches the built-in tool rendering", () => {
+  assert.equal(formatSearchResults([]), NO_RESULTS)
+  const text = formatSearchResults([
+    { url: "https://a.example", title: "A", content: "summary A", time: { published: 1_793_000_000_000 } },
+    { url: "https://b.example", time: {} },
+  ])
+  assert.equal(
+    text,
+    "## [A](https://a.example)\nPublished: 2026-10-26T07:33:20.000Z\n\nsummary A\n\n## [https://b.example](https://b.example)",
+  )
 })
 
 test("httpError maps billing-sensitive statuses to actionable Chinese messages", () => {
