@@ -206,7 +206,11 @@ export default Plugin.define({
 
     const describeMode = (): string =>
       `当前搜索后端: ${mode}（来源: ${overrideMode ? "deepseek_mode 开关，已持久化" : "配置文件 options.mode"}）` +
-      (mode === "deepseek" ? " · 内置 websearch 已由 DeepSeek 接管" : " · 内置 websearch 保持原生")
+      (mode === "deepseek"
+        ? searchToolPatched
+          ? " · 内置 websearch 已由 DeepSeek 接管"
+          : " · 未找到内置 websearch 工具，实际未能接管"
+        : " · 内置 websearch 保持原生")
 
     // ---------- tools ----------
     await ctx.tool.transform((editor) => {
@@ -342,6 +346,11 @@ export default Plugin.define({
         `searchTool=${searchToolPatched ? "deepseek" : "untouched"}`,
     )
     if (!apiKey) console.error(`[deepseek-search] ${missingKeyMessage()}`)
+    if (overrideMode && overrideMode !== configMode)
+      console.error(
+        `[deepseek-search] 注意：存在持久化开关 mode=${overrideMode}，已覆盖配置文件里的 ${configMode}；` +
+          `调用 deepseek_mode 传 "config" 可清除。`,
+      )
     if (mode === "deepseek" && !searchToolPatched)
       console.error(
         `[deepseek-search] 警告：未找到内置 ${SEARCH_TOOL} 工具，搜索仍走内置后端。` +
