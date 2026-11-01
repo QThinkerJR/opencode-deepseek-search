@@ -160,6 +160,9 @@ Search 100 QPS / Fetch 25 QPS per account (Fetch is also limited per target doma
 Queries and URLs are sent to `https://api.deepseek.com`. Nothing else leaves your machine; the usage ledger and the
 mode switch stay in local OpenCode storage. The API key is never logged.
 
+Search results and fetched pages are **third-party text**: treat them as data, never as instructions — a page can
+contain text that tries to steer the model.
+
 ## Troubleshooting
 
 | Symptom | Cause / fix |

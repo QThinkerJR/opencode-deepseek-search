@@ -152,6 +152,8 @@ deepseek_mode 开关（storage: mode/v1）  >  options.mode  >  内置默认
 query 与 URL 会发往 `https://api.deepseek.com`。其余数据不出本机，用量账本与模式开关留在本地 OpenCode 存储中；
 API Key 不写日志。
 
+搜索结果与被抓取页面是**第三方文本**：应按数据处理，而不是当作指令——页面里可能夹带试图操纵模型的内容。
+
 ## 故障排查
 
 | 现象 | 原因 / 处理 |
