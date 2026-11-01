@@ -1,10 +1,13 @@
 # DeepSeek Search for OpenCode V2
 
-DeepSeek Search & Fetch as an OpenCode V2 plugin: **the built-in `websearch` tool routes to DeepSeek**, a clean
-Markdown fetch tool, and local usage/cost stats. Flip one option to go back to native search.
+DeepSeek Search & Fetch as an OpenCode V2 plugin: **the built-in `websearch` tool routes to DeepSeek**, plus a clean
+Markdown fetch tool, local usage/cost stats, and a **persisted** backend switch.
 
-Differs from the existing same-named V1 package: this one targets the **V2 plugin API**, is **switchable**
-(`mode: "deepseek" | "native"`), and reports **local usage and estimated cost**.
+Three ways back to native search: change the `mode` option, ask the model to call `deepseek_mode`, or run
+`tools/switch-mode.ps1` from the repo.
+
+Differs from the existing same-named V1 package: this one targets the **V2 plugin API**, switches backends **at
+runtime**, and reports **local usage and estimated cost**.
 
 > Verified against `opencode 2.2.5` with `@opencode/plugin@2.2.5` on Windows. Search/Fetch API facts come from
 > <https://api-docs.deepseek.com/zh-cn/guides/search>.
@@ -21,6 +24,7 @@ Set the key once (Windows, user scope):
 
 ```powershell
 [Environment]::SetEnvironmentVariable("DEEPSEEK_API_KEY", "sk-...", "User")
+opencode service restart   # User-scope variables only reach new processes
 ```
 
 Then add the plugin to `opencode.jsonc`:
@@ -28,13 +32,11 @@ Then add the plugin to `opencode.jsonc`:
 ```jsonc
 {
   "$schema": "https://opencode.ai/config.json",
-  "plugins": [
-    "@qthinker/opencode-deepseek-search"
-  ]
+  "plugins": ["@qthinker/opencode-deepseek-search"]
 }
 ```
 
-With options (recommended — this is where `mode` lives):
+With options (recommended — this is where `mode` and friends live):
 
 ```jsonc
 {
@@ -68,43 +70,68 @@ re-run in place, no `/reload` or service restart needed.
 
 | Option | Type | Default | Meaning |
 |---|---|---|---|
-| `mode` | `"deepseek" \| "native"` | `deepseek` | Which backend serves the `websearch` tool |
+| `mode` | `"deepseek" \| "native"` | `deepseek` | Default backend for `websearch`; a persisted `deepseek_mode` switch overrides it |
 | `apiKey` | string | `DEEPSEEK_API_KEY` | Usually `"{env:DEEPSEEK_API_KEY}"`; unset env becomes `""` |
 | `count` | 1–50 | `5` | Results per search (does not change the price) |
 | `fetchMaxChars` | 500–200000 | `30000` | Truncation limit for `deepseek_fetch`, with an explicit notice |
 | `pricePerThousand` | 0–10000 | `5` | CNY per 1000 requests (integer), used only for the local cost estimate |
 
-## What you get
+## Tools
 
-**`websearch` (unchanged name, unchanged input).** In `deepseek` mode the built-in tool is rerouted to DeepSeek, so
-the model needs no prompt changes and sees the same tool. The patch keeps the built-in permission check and the
-declared output shape, so approval prompts and rendering are unchanged. Results carry `summary` (600–800 chars,
-written for models) or `snippet` — never the full page text, and `need_content` is never requested.
+| Tool | What it does |
+|---|---|
+| `websearch` (built-in) | Same name and input; in `deepseek` mode this plugin supplies the results |
+| `deepseek_fetch` | One URL in, clean Markdown out, cut at `fetchMaxChars` with a notice |
+| `deepseek_usage` | Local search/fetch counts and estimated cost; `reset: true` clears it |
+| `deepseek_mode` | Report or switch the search backend; the switch is persisted |
 
-> Why the tool is rerouted instead of relying on a provider default: in 2.2.5, a plugin's
-> `websearch.default.set()` is overwritten by the built-in config plugin registered later, so the tool keeps using
-> the built-in provider. The plugin therefore patches the built-in tool itself; the built-in permission check is kept,
-> while the "choose a search provider" form never appears in deepseek mode. If the built-in tool cannot be
-> found (other versions), the provider registration remains and you can force routing with
-> `"websearch": { "provider": "deepseek" }` in the config file.
+The reroute **keeps the built-in permission check and the declared `output` shape**, so approval prompts and rendering
+are unchanged. Results carry `summary` (600–800 chars, written for models) or `snippet` — never the full page text,
+and `need_content` is never requested.
 
-**`deepseek_fetch`** — one URL in, clean Markdown out, plus a title/source header. Long pages are cut at
-`fetchMaxChars` and end with `[DeepSeek Fetch 截断提示]`. The built-in `webfetch` is never overridden.
+## Switching backends
 
-**`deepseek_usage`** — ask the model *"how many searches did I make and what did they cost?"*.
+### Three ways
 
-**`deepseek_mode`** — switch the backend without editing the config file:
+| Way | How | Persisted | Use it for |
+|---|---|---|---|
+| Config | Edit `options.mode`; applies on save | Yes (in the config file) | The long-term default |
+| Tool | Ask the model to call `deepseek_mode`, or call it yourself | Yes (plugin storage `mode/v1`) | Switching mid-session without touching files |
+| Script | `.\tools\switch-mode.ps1 native` | Yes (the script edits the config) | Quick switch from a terminal, no editor |
+
+`deepseek_mode` actions:
 
 | Call | Effect |
 |---|---|
-| `deepseek_mode` (or `{"mode": "status"}`) | report the current backend and where it comes from |
-| `deepseek_mode({"mode": "deepseek"})` | route the built-in `websearch` tool to DeepSeek |
-| `deepseek_mode({"mode": "native"})` | leave the built-in backend alone again |
-| `deepseek_mode({"mode": "config"})` | clear the stored switch so `options.mode` decides again |
+| `deepseek_mode` (or `{"mode": "status"}`) | Report the current backend **and where it comes from** (config file / persisted switch) |
+| `deepseek_mode({"mode": "deepseek"})` | Route the built-in `websearch` tool to DeepSeek |
+| `deepseek_mode({"mode": "native"})` | Leave the built-in backend alone again |
+| `deepseek_mode({"mode": "config"})` | Clear the persisted switch so `options.mode` decides again |
 
-The choice is written to OpenCode's local plugin storage (`mode/v1`) — **global to the installation and persisted across
-restarts** — and it takes precedence over `options.mode`. Your config file is never modified, and `mode: "config"` is the
-one-command way back to it.
+### Precedence
+
+```
+deepseek_mode switch (storage: mode/v1)  >  options.mode  >  built-in default
+```
+
+- The switch lives in OpenCode's local plugin storage (`mode/v1`) — **global to the installation and persisted across
+  restarts** — and it never modifies your config file.
+- Because it wins over the config file, an edit that "does nothing" means a stored switch is present: ask
+  `deepseek_mode` (it names the source), then clear it with `mode: "config"`.
+- The provider is registered in both modes, so the worst case at any step is "keep the previous backend" — never
+  "no search available".
+
+### What native mode still gives you
+
+`websearch` is left completely alone and serves your existing backend. `deepseek_fetch`, `deepseek_usage` and
+`deepseek_mode` remain registered (they are additive), and the provider is still registered, so you can select it
+explicitly with `providerID: "deepseek"` or config `"websearch": { "provider": "deepseek" }`.
+
+> Why the tool is rerouted instead of relying on a provider default: in 2.2.5, a plugin's `websearch.default.set()` is
+> overwritten by the built-in config plugin registered later, so the tool keeps using the built-in provider. The plugin
+> therefore patches the built-in tool itself; the built-in permission check is kept, while the "choose a search
+> provider" form never appears in deepseek mode. If a version does not expose that tool, `deepseek_mode` says it cannot
+> switch at runtime — use `websearch.provider` in the config instead.
 
 ## Usage and cost
 
@@ -130,19 +157,74 @@ Search 100 QPS / Fetch 25 QPS per account (Fetch is also limited per target doma
 
 ## Privacy
 
-Queries and URLs are sent to `https://api.deepseek.com`. Nothing else leaves your machine; the usage ledger stays
-in local OpenCode storage. The API key is never logged.
+Queries and URLs are sent to `https://api.deepseek.com`. Nothing else leaves your machine; the usage ledger and the
+mode switch stay in local OpenCode storage. The API key is never logged.
 
 ## Troubleshooting
 
 | Symptom | Cause / fix |
 |---|---|
+| Unsure which backend search uses | Call `deepseek_mode` — it reports the backend **and** its source |
+| Config edit seems ignored | A persisted switch is present (the source says so); clear it with `deepseek_mode({"mode": "config"})` |
 | `未配置 DeepSeek API Key` (missing key) | Set `DEEPSEEK_API_KEY`, restart the OpenCode service once so the new process inherits it |
 | `401` invalid key | Check the key and that `apiKey`/env points at it |
 | `402` insufficient balance | Top up; failed requests are not billed |
 | `429` rate limited | Backed off once already; retry later |
 | `403` / `404` on fetch | The site blocks extraction or the page has no readable text; try the built-in `webfetch` |
-| Backend still looks native | `mode` is `native`, or the built-in `websearch` tool was not found; set `"websearch": { "provider": "deepseek" }` |
+| Search still hits the native backend | `mode` or the persisted switch is `native`; if both are `deepseek`, the built-in `websearch` tool was not found — use config `"websearch": { "provider": "deepseek" }` |
+
+## Local development
+
+```powershell
+cd D:\MyDev\opencode-deepseek-search
+npm install
+npm run typecheck     # tsc --noEmit
+npm test              # node --test, pure functions, zero cost
+npm run smoke         # real API smoke; skipped without DEEPSEEK_API_KEY
+npm pack --dry-run    # audit the publish artifacts
+```
+
+One-command switch (repo-only helper; edits `options.mode` in `opencode.jsonc`, backing it up to `opencode.jsonc.bak-switch`):
+
+```powershell
+.\tools\switch-mode.ps1 status
+.\tools\switch-mode.ps1 native
+.\tools\switch-mode.ps1 deepseek
+```
+
+If ExecutionPolicy blocks it:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\switch-mode.ps1 native
+```
+
+Shorter, via an alias in `$PROFILE`:
+
+```powershell
+function dsmode { & "D:\MyDev\opencode-deepseek-search\tools\switch-mode.ps1" @args }
+```
+
+Layout:
+
+```
+index.ts              # directory-plugin entry, re-exports src/index.ts
+src/index.ts          # plugin: options, registration, websearch patch, three tools
+src/deepseek.ts       # HTTP core: timeout/cancel, single backoff retry, Chinese errors, mapping
+src/usage.ts          # pure ledger: micro-CNY pricing, 60-day prune, defensive parse, formatting
+test/*.test.ts        # pure-function tests
+scripts/smoke.ts      # real-API smoke (5 steps)
+tools/switch-mode.ps1 # terminal backend switch
+.github/workflows/    # ci (typecheck + test) / release (tag-triggered, OIDC provenance)
+```
+
+Two packaging traps (already avoided — do not reintroduce them):
+
+1. A configured local plugin path must be a **directory**; a single file is dropped.
+2. Do **not** add `exports` to `package.json`: with `name` + `exports`, OpenCode resolves the directory by package
+   name, and when the resolved entrypoint falls outside the directory it is **silently dropped** (no log line,
+   it just disappears from `plugin list`).
+
+Source edits hot-reload on save; verify with `opencode plugin list` plus one real search.
 
 ## License
 
