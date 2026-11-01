@@ -5,13 +5,13 @@
     "type":  "module",
     "license":  "MIT",
     "author":  "QThinker",
-    "homepage":  "https://github.com/QThinker/opencode-deepseek-search#readme",
+    "homepage":  "https://github.com/QThinkerJR/opencode-deepseek-search#readme",
     "repository":  {
                        "type":  "git",
-                       "url":  "git+https://github.com/QThinker/opencode-deepseek-search.git"
+                       "url":  "git+https://github.com/QThinkerJR/opencode-deepseek-search.git"
                    },
     "bugs":  {
-                 "url":  "https://github.com/QThinker/opencode-deepseek-search/issues"
+                 "url":  "https://github.com/QThinkerJR/opencode-deepseek-search/issues"
              },
     "keywords":  [
                      "opencode",
@@ -52,5 +52,8 @@
                             "@types/node":  "^24.0.0",
                             "typescript":  "^5.9.0"
                         },
-    "main":  "./index.ts"
+    "main":  "./index.ts",
+    "publishConfig":  {
+                          "access":  "public"
+                      }
 }
