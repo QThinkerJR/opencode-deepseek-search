@@ -14,6 +14,7 @@
 
 import { Plugin } from "@opencode/plugin"
 import type { Result as ToolResult, ToolContext } from "@opencode/plugin/promise/tool"
+import type { RpcRegistration } from "@opencode/plugin/promise/rpc"
 import {
   deepseekFetch,
   deepseekSearch,
@@ -23,6 +24,7 @@ import {
   validateUrl,
   type SearchResult,
 } from "./deepseek.ts"
+import { DeepSeekRpc, type ModeSwitchResult, type SearchStatus } from "./rpc.ts"
 import {
   USAGE_KEY,
   applyTally,
@@ -32,6 +34,7 @@ import {
   formatUsage,
   formatYuan,
   parseLedger,
+  usageSummaryLines,
   type Tally,
   type UsageLedger,
 } from "./usage.ts"
@@ -118,10 +121,19 @@ export default Plugin.define({
       chain = run.catch(() => {})
       return run
     }
+    // Filled in after the tool transforms are registered; `tally` can run before
+    // that, so this stays optional. `changed` tells the sidebars to re-read `status`.
+    let rpcRegistration: RpcRegistration<typeof DeepSeekRpc> | undefined
+    // Nested `changed` events are cheap, but they are also not worth failing a
+    // search or a mode switch over, so every caller ignores the outcome.
+    const notifyChanged = (): void => {
+      void rpcRegistration?.events.emit("changed", {}).catch(() => {})
+    }
     const tally = (kind: Tally): void => {
       void withLedger(async (ledger) => {
         applyTally(ledger, kind, pricePerThousand)
         await ctx.storage.set(USAGE_KEY, ledger)
+        notifyChanged()
         const today = ledger.days[dayKey()] ?? emptyDay()
         console.error(
           `[deepseek-search] usage: today search=${today.search} fetch=${today.fetch} ${formatYuan(today.costMicro)}`,
@@ -211,6 +223,32 @@ export default Plugin.define({
           ? " · 内置 websearch 已由 DeepSeek 接管"
           : " · 未找到内置 websearch 工具，实际未能接管"
         : " · 内置 websearch 保持原生")
+
+    // Shared by the `deepseek_mode` tool and the RPC `setMode` method. The
+    // returned strings are the tool's documented output, word for word.
+    const switchMode = async (action: Exclude<ModeAction, "status">): Promise<string> => {
+      if (!pristine) {
+        return (
+          `未找到内置 ${SEARCH_TOOL} 工具，无法在运行时切换。` +
+          `请改用配置文件把 options.mode 设为 "${action === "config" ? configMode : action}"。`
+        )
+      }
+      if (action === "config") {
+        await ctx.storage.remove(MODE_KEY)
+        overrideMode = undefined
+        await applySearchMode(configMode)
+        notifyChanged()
+        return `${describeMode()}\n\n已清除持久化开关，回到配置文件设置（${configMode}）。`
+      }
+      await ctx.storage.set(MODE_KEY, action)
+      overrideMode = action
+      await applySearchMode(action)
+      notifyChanged()
+      return (
+        `${describeMode()}\n\n已持久化：重启 OpenCode 后仍为 ${action}。` +
+        '要恢复配置文件设置，调用 deepseek_mode 并传 mode: "config"。'
+      )
+    }
 
     // ---------- tools ----------
     await ctx.tool.transform((editor) => {
@@ -314,29 +352,40 @@ export default Plugin.define({
         execute: async (input) => {
           const action = readModeAction(input)
           if (action === "status") return { content: describeMode() }
-          if (!pristine) {
-            return {
-              content:
-                `未找到内置 ${SEARCH_TOOL} 工具，无法在运行时切换。` +
-                `请改用配置文件把 options.mode 设为 "${action === "config" ? configMode : action}"。`,
-            }
-          }
-          if (action === "config") {
-            await ctx.storage.remove(MODE_KEY)
-            overrideMode = undefined
-            await applySearchMode(configMode)
-            return { content: `${describeMode()}\n\n已清除持久化开关，回到配置文件设置（${configMode}）。` }
-          }
-          await ctx.storage.set(MODE_KEY, action)
-          overrideMode = action
-          await applySearchMode(action)
-          return {
-            content:
-              `${describeMode()}\n\n已持久化：重启 OpenCode 后仍为 ${action}。` +
-              '要恢复配置文件设置，调用 deepseek_mode 并传 mode: "config"。',
-          }
+          return { content: await switchMode(action) }
         },
       })
+    })
+
+    // ---------- RPC contract (TUI / desktop sidebars) ----------
+    // Both sidebars read `status` and call `setMode`; nothing else crosses the
+    // process boundary, so the plugin's state stays the single source of truth.
+    rpcRegistration = await ctx.rpc.register(DeepSeekRpc, {
+      // Reads through `withLedger` so it observes the same serialized chain.
+      status: async (): Promise<SearchStatus> =>
+        withLedger(
+          (ledger): SearchStatus => ({
+            mode,
+            source: overrideMode ? "override" : "config",
+            patched: searchToolPatched,
+            hasKey: Boolean(apiKey),
+            pricePerThousand,
+            ...usageSummaryLines(ledger),
+          }),
+        ),
+      // The input is plain JSON Schema, hence `unknown`: report, never throw.
+      setMode: async (input: unknown): Promise<ModeSwitchResult> => {
+        let action: ModeAction
+        try {
+          action = readModeAction(input)
+        } catch (e) {
+          return { ok: false, mode, message: e instanceof Error ? e.message : String(e) }
+        }
+        if (action === "status") return { ok: false, mode, message: "status 只读取当前模式，不做切换。" }
+        const message = await switchMode(action)
+        // `!pristine` means switchMode could not apply the change; its message says why.
+        return { ok: Boolean(pristine), mode, message }
+      },
     })
 
     // Load marker for diagnostics; never logs the key itself.

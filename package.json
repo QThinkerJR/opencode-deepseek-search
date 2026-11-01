@@ -39,7 +39,7 @@
                     "prepublishOnly":  "npm run typecheck \u0026\u0026 npm test"
                 },
     "peerDependencies":  {
-                             "@opencode/plugin":  "\u003e=2.2.0"
+                             "@opencode/plugin":  "\u003e=2.2.5"
                          },
     "peerDependenciesMeta":  {
                                  "@opencode/plugin":  {

@@ -114,3 +114,22 @@ export function formatUsage(ledger: UsageLedger, pricePerThousand: number, mode:
     "说明：空结果与失败请求不计费；DeepSeek 以账号侧账单为准，本统计不含其他机器或其他工具的调用。",
   ].join("\n")
 }
+
+/**
+ * Compact one-line summaries for a status display, keyed by period. Callers add
+ * the 今日/本月/累计 labels themselves. Costs are read from the ledger, which
+ * already accumulated them at tally time.
+ */
+export function usageSummaryLines(
+  ledger: UsageLedger,
+  today = dayKey(),
+): { today: string; month: string; total: string } {
+  const month = today.slice(0, 7)
+  const line = (d: UsageDay) =>
+    `搜索 ${d.search} · 抓取 ${d.fetch} · 空/失 ${d.empty + d.failed} · ${formatYuan(d.costMicro)}`
+  return {
+    today: line(sumDays(ledger, (k) => k === today)),
+    month: line(sumDays(ledger, (k) => k.startsWith(month))),
+    total: line(sumDays(ledger, () => true)),
+  }
+}
