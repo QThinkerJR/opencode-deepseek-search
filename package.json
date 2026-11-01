@@ -1,0 +1,56 @@
+﻿{
+    "name":  "@yourname/opencode-deepseek-search",
+    "version":  "0.1.0",
+    "description":  "DeepSeek Search \u0026 Fetch for OpenCode V2: a switchable websearch backend, clean Markdown fetch, and local usage/cost stats",
+    "type":  "module",
+    "license":  "MIT",
+    "author":  "QThinker",
+    "homepage":  "https://github.com/QThinker/opencode-deepseek-search#readme",
+    "repository":  {
+                       "type":  "git",
+                       "url":  "git+https://github.com/QThinker/opencode-deepseek-search.git"
+                   },
+    "bugs":  {
+                 "url":  "https://github.com/QThinker/opencode-deepseek-search/issues"
+             },
+    "keywords":  [
+                     "opencode",
+                     "opencode-plugin",
+                     "deepseek",
+                     "websearch",
+                     "search",
+                     "fetch",
+                     "usage",
+                     "cost"
+                 ],
+    "files":  [
+                  "index.ts",
+                  "src",
+                  "README.md",
+                  "README.zh-CN.md",
+                  "LICENSE"
+              ],
+    "engines":  {
+                    "node":  "\u003e=22.18"
+                },
+    "scripts":  {
+                    "typecheck":  "tsc --noEmit",
+                    "test":  "node --test test/*.test.ts",
+                    "smoke":  "node --experimental-strip-types scripts/smoke.ts",
+                    "prepublishOnly":  "npm run typecheck \u0026\u0026 npm test"
+                },
+    "peerDependencies":  {
+                             "@opencode/plugin":  "\u003e=2.2.0"
+                         },
+    "peerDependenciesMeta":  {
+                                 "@opencode/plugin":  {
+                                                          "optional":  true
+                                                      }
+                             },
+    "devDependencies":  {
+                            "@opencode/plugin":  "2.2.5",
+                            "@types/node":  "^24.0.0",
+                            "typescript":  "^5.9.0"
+                        },
+    "main":  "./index.ts"
+}
