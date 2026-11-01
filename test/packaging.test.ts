@@ -24,3 +24,9 @@ test("server entry resolves to the repository root index.ts", () => {
   assert.ok(entry.server, "server entry did not resolve")
   assert.equal(path.basename(fileURLToPath(entry.server)), "index.ts")
 })
+
+test("tui entry resolves to the repository root tui.ts", () => {
+  const entry = Host.resolve({ directory: root })
+  assert.ok(entry.tui, "tui entry did not resolve")
+  assert.equal(path.basename(fileURLToPath(entry.tui)), "tui.ts")
+})

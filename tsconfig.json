@@ -12,6 +12,6 @@
     "noUncheckedIndexedAccess": false,
     "forceConsistentCasingInFileNames": true
   },
-  "include": ["index.ts", "src", "test", "scripts"]
+  "include": ["index.ts", "tui.ts", "src", "test", "scripts"]
 }
 
