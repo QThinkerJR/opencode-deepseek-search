@@ -1,10 +1,16 @@
 # DeepSeek Search for OpenCode V2
 
+[![npm version](https://img.shields.io/npm/v/@qthinker/opencode-deepseek-search)](https://www.npmjs.com/package/@qthinker/opencode-deepseek-search)
+[![license](https://img.shields.io/npm/l/@qthinker/opencode-deepseek-search)](./LICENSE)
+[![node](https://img.shields.io/node/v/@qthinker/opencode-deepseek-search)](https://nodejs.org)
+[![opencode](https://img.shields.io/badge/opencode-%E2%89%A52.2.5-black)](https://opencode.ai)
+
 DeepSeek Search & Fetch as an OpenCode V2 plugin: **the built-in `websearch` tool routes to DeepSeek**, plus a clean
 Markdown fetch tool, local usage/cost stats, and a **persisted** backend switch.
 
 Three ways back to native search: change the `mode` option, ask the model to call `deepseek_mode`, or run
 `tools/switch-mode.ps1` from the repo.
+中文说明见 [docs/README.zh-CN.md](https://github.com/QThinkerJR/opencode-deepseek-search/blob/main/docs/README.zh-CN.md)。
 
 Differs from the existing same-named V1 package: this one targets the **V2 plugin API**, switches backends **at
 runtime**, and reports **local usage and estimated cost**.
