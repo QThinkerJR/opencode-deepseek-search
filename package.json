@@ -1,5 +1,5 @@
 ﻿{
-    "name":  "@yourname/opencode-deepseek-search",
+    "name":  "@qthinker/opencode-deepseek-search",
     "version":  "0.1.0",
     "description":  "DeepSeek Search \u0026 Fetch for OpenCode V2: a switchable websearch backend, clean Markdown fetch, and local usage/cost stats",
     "type":  "module",
