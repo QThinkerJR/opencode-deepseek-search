@@ -3,6 +3,7 @@
 import type { JSX } from "solid-js"
 import { For, Show, createMemo, onCleanup, onMount } from "solid-js"
 import { usePlugin } from "@opencode/plugin/gui"
+import { t, type Key } from "../i18n/index.ts"
 import type { SearchStatus } from "../rpc.ts"
 import { sidebarRows, type SidebarRows } from "../status-view.ts"
 
@@ -28,9 +29,9 @@ const INK = {
   light: { on: "#1e7a4c", warn: "#8a5f08", error: "#b03931", off: "#6b7076", idle: "#6b7076", rule: "rgba(0,0,0,0.13)" },
 } as const
 
-const LABEL: Readonly<Record<Tone, string>> = {
-  on: "停用（交还原生搜索）", off: "启用（由 DeepSeek 接管）",
-  warn: "交还原生搜索", error: "重试", idle: "重试",
+const LABEL_KEY: Readonly<Record<Tone, Key>> = {
+  on: "panel.label.on", off: "panel.label.off",
+  warn: "panel.label.warn", error: "panel.label.error", idle: "panel.label.idle",
 }
 
 const ICON = { on: "arrow-undo-down", off: "globe", warn: "arrow-undo-down", error: "refresh", idle: "refresh" } as const
@@ -68,7 +69,11 @@ function help(action: string, mono: string): JSX.Element {
 
 export function DeepSeekPanel(props: DeepSeekPanelProps): JSX.Element {
   const ctx = usePlugin()
-  const rows = createMemo(() => sidebarRows({ status: props.status, error: props.error, maxColumns: Infinity }))
+  // The desktop plugin has no forced locale: the server resolves one and carries
+  // it in `status`. The first frame has no status and renders the loader, so the
+  // fallback only ever shows that.
+  const language = () => props.status?.language ?? "en"
+  const rows = createMemo(() => sidebarRows({ status: props.status, error: props.error, maxColumns: Infinity, language: language() }))
   const ink = createMemo(() => INK[ctx.appearance.mode()])
   const mono = () => ctx.appearance.font("mono")
 
@@ -95,8 +100,8 @@ export function DeepSeekPanel(props: DeepSeekPanelProps): JSX.Element {
         <h2 aria-live="polite" style={{ flex: 1, "min-width": 0, margin: 0, "font-size": "13px", "font-weight": 600, "line-height": "20px", "overflow-wrap": "anywhere" }}>
           {headline(rows().title, ink()[rows().tone])}
         </h2>
-        <ctx.ui.Tooltip value="刷新用量" placement="bottom">
-          <ctx.ui.IconButton icon="refresh" label="刷新用量" size="small" onClick={props.onRefresh} />
+        <ctx.ui.Tooltip value={t(language(), "panel.tooltip.refresh")} placement="bottom">
+          <ctx.ui.IconButton icon="refresh" label={t(language(), "panel.tooltip.refresh")} size="small" onClick={props.onRefresh} />
         </ctx.ui.Tooltip>
       </header>
 
@@ -106,7 +111,7 @@ export function DeepSeekPanel(props: DeepSeekPanelProps): JSX.Element {
         ) : (
           <div style={{ display: "flex", "align-items": "center", gap: "8px", "margin-top": "14px", opacity: 0.7 }}>
             <ctx.ui.Loader size="small" />
-            <span style={{ "font-size": "12px" }}>正在读取用量…</span>
+            <span style={{ "font-size": "12px" }}>{t(language(), "panel.loading")}</span>
           </div>
         )
       ) : (
@@ -145,7 +150,7 @@ export function DeepSeekPanel(props: DeepSeekPanelProps): JSX.Element {
       <Show when={rows().clickable && rows().tone !== "idle"}>
         <div style={{ "margin-top": "18px" }}>
           <ctx.ui.Button variant={rows().tone === "off" || rows().tone === "error" ? "contrast" : "neutral"} icon={ICON[rows().tone]} disabled={props.busy} busy={props.busy} onClick={props.onToggle}>
-            {LABEL[rows().tone]}
+            {t(language(), LABEL_KEY[rows().tone])}
           </ctx.ui.Button>
         </div>
       </Show>

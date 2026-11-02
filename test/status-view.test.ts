@@ -3,7 +3,7 @@ import { test } from "node:test"
 import { sidebarRows, textColumns } from "../src/status-view.ts"
 import type { SidebarRows } from "../src/status-view.ts"
 import { cardColumns } from "../src/tui/card.ts"
-import type { SearchStatus } from "../src/rpc.ts"
+import type { Language, SearchStatus } from "../src/rpc.ts"
 
 // The copy is the user's: `Search` and `Fetch` are words, and the abbreviations
 // are only a last resort. These tests lock that ladder, the measured widths,
@@ -38,8 +38,15 @@ const STATUS: SearchStatus = {
   counts: COUNTS,
 }
 
-function rowsAt(status: SearchStatus | undefined, maxColumns = SIDEBAR_COLUMNS, error?: string) {
-  return sidebarRows({ status, error, maxColumns })
+// This file locks the Chinese ladder: the wording below is zh-CN, and the
+// language matrix lives in test/i18n-layout.test.ts.
+function rowsAt(
+  status: SearchStatus | undefined,
+  maxColumns = SIDEBAR_COLUMNS,
+  error?: string,
+  language: Language = "zh-CN",
+) {
+  return sidebarRows({ status, error, maxColumns, language })
 }
 
 /** Width of the title row: the glyph and the title, nothing else. */
@@ -494,7 +501,7 @@ test("the card ignores a width it cannot use and keeps the narrow budget", () =>
   // The view model's own default matches that fallback, so the first frame and
   // an explicit 24-column measurement render the same card.
   assert.deepEqual(
-    sidebarRows({ status: STATUS, error: undefined }),
+    sidebarRows({ status: STATUS, error: undefined, language: "zh-CN" }),
     rowsAt(STATUS, FIRST_FRAME_COLUMNS),
   )
 })

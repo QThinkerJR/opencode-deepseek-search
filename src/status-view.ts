@@ -1,16 +1,20 @@
 // Pure view model for the sidebar card. No renderer, no runtime dependency:
 // the card and the tests both derive their text from here.
-import type { SearchStatus, UsageCounts } from "./rpc.ts"
+import { format, pack, t } from "./i18n/index.ts"
+import type { SearchStatus, UsageCounts, Language } from "./rpc.ts"
 
 export interface SidebarInput {
   readonly status: SearchStatus | undefined
-  readonly error: string | undefined
+  /** The last read failure, if any; undefined while the first read is in flight. */
+  readonly error?: string | undefined
   /**
    * Columns one row may occupy. Defaults to the narrow sidebar budget; a host
    * that has measured its width may pass it, and the desktop panel passes
    * `Infinity` because it has room for the verbose copy.
    */
   readonly maxColumns?: number
+  /** Resolved by the server and carried in `status`; both sidebars read it there. */
+  readonly language: Language
 }
 
 export interface SidebarRows {
@@ -58,7 +62,11 @@ export const DEFAULT_COLUMNS = 24
 
 const PERIODS = ["today", "month", "total"] as const
 type Period = (typeof PERIODS)[number]
-const LABELS: Readonly<Record<Period, string>> = { today: "今日", month: "本月", total: "累计" }
+const LABEL_KEY = {
+  today: "usage.label.today",
+  month: "usage.label.month",
+  total: "usage.label.total",
+} as const
 
 type Counts = NonNullable<SearchStatus["counts"]>
 
@@ -106,9 +114,9 @@ function clip(text: string, maxColumns: number): string {
 }
 
 /** One short body line: collapse whitespace, then clip to the available columns. */
-function shortMessage(message: string, maxColumns: number): string {
+function shortMessage(message: string, maxColumns: number, language: Language): string {
   const text = message.replace(/\s+/g, " ").trim()
-  return clip(text || "读取失败", maxColumns)
+  return clip(text || t(language, "state.failed"), maxColumns)
 }
 
 /** Micro-currency as `¥0.015`: three decimals, trailing zeros trimmed to cents. */
@@ -142,46 +150,41 @@ function usageLayout(counts: Counts): UsageLayout {
 
 /**
  * One usage row, e.g. `今日  Search 0  Fetch 3  ¥0.015` when the surface is
- * wide, otherwise shorter forms down to `今日`. The words are the product's
- * copy, so they survive as long as any shape can hold them: the amount goes
- * first, then the tighter grouping, and only then `0S` / `3F`. Counts are
- * right-aligned in their shared width and every row picks the same form, so
- * the three rows read as a table.
+ * wide, otherwise shorter forms down to `今日`. The ladder is per language:
+ * each locale owns the shapes that read well at its widths, so no language is
+ * squeezed into another one's budget. Counts are right-aligned in their shared
+ * width and every row picks the same form, so the three rows read as a table.
  */
 function compactUsageRow(
   period: Period,
   counts: UsageCounts,
   layout: UsageLayout,
   maxColumns: number,
+  language: Language,
 ): string {
-  const label = LABELS[period]
+  const label = t(language, LABEL_KEY[period])
   const search = String(counts.search).padStart(layout.search, " ")
   const fetch = String(counts.fetch).padStart(layout.fetch, " ")
   const cost = money(counts.costMicro).padStart(layout.cost, " ")
+  const params = { label, search, fetch, cost }
   // Each candidate is a complete row, so nothing is ever left dangling and no
   // number is ever cut from its unit.
-  const candidates = [
-    `${label}  Search ${search}  Fetch ${fetch}  ${cost}`,
-    `${label} Search ${search} Fetch ${fetch} ${cost}`,
-    `${label}  Search ${search}  Fetch ${fetch}`,
-    `${label} Search ${search} Fetch ${fetch}`,
-    `${label}  ${search}S  ${fetch}F  ${cost}`,
-    `${label}  ${search}S  ${fetch}F`,
-    `${label}  ${search}S`,
-  ]
-  for (const row of candidates) {
+  for (const form of pack(language).usageForms) {
+    const row = format(form, params)
     if (textColumns(row) <= maxColumns) return row
   }
   return textColumns(label) <= maxColumns ? label : clip(label, maxColumns)
 }
 
 /**
- * An older server only sends pre-formatted strings. Keep the full string when
- * it fits, otherwise drop its trailing segments whole: the amount and the
- * diagnostic counters go first, then the fetch count.
+ * An older server only sends pre-formatted strings, and those are always the
+ * Chinese ones this plugin used to send: the filter below is deliberately
+ * Chinese-only and stays correct while the UI language changes. Keep the full
+ * string when it fits, otherwise drop its trailing segments whole: the amount
+ * and the diagnostic counters go first, then the fetch count.
  */
-function legacyUsageRow(period: Period, text: string, maxColumns: number): string {
-  const label = LABELS[period]
+function legacyUsageRow(period: Period, text: string, maxColumns: number, language: Language): string {
+  const label = t(language, LABEL_KEY[period])
   const full = `${label} ${text}`
   if (textColumns(full) <= maxColumns) return full
   const stats = text.split(" · ").filter((part) => !part.startsWith("¥") && !part.startsWith("空/失"))
@@ -196,18 +199,22 @@ function legacyUsageRow(period: Period, text: string, maxColumns: number): strin
   return clip(label, maxColumns)
 }
 
-function usageLines(status: SearchStatus, maxColumns: number): readonly string[] {
+function usageLines(status: SearchStatus, maxColumns: number, language: Language): readonly string[] {
   // The desktop panel lays the original verbose copy out as ` · ` chunks of its
   // own table; only the terminal needs the compact form.
   if (maxColumns === Number.POSITIVE_INFINITY) {
-    return [`今日 ${status.today}`, `本月 ${status.month}`, `累计 ${status.total}`]
+    return [
+      `${t(language, "usage.label.today")} ${status.today}`,
+      `${t(language, "usage.label.month")} ${status.month}`,
+      `${t(language, "usage.label.total")} ${status.total}`,
+    ]
   }
   const counts = status.counts
   if (counts) {
     const layout = usageLayout(counts)
-    return PERIODS.map((period) => compactUsageRow(period, counts[period], layout, maxColumns))
+    return PERIODS.map((period) => compactUsageRow(period, counts[period], layout, maxColumns, language))
   }
-  return PERIODS.map((period) => legacyUsageRow(period, status[period], maxColumns))
+  return PERIODS.map((period) => legacyUsageRow(period, status[period], maxColumns, language))
 }
 
 /**
@@ -275,18 +282,13 @@ function fitTitle(
 }
 
 /** The fix hint for a missing key; it gets its own row because no click can fix it. */
-function fitHint(maxColumns: number): string {
-  const candidates = [
-    "设置 DEEPSEEK_API_KEY 后重启",
-    "设置 API KEY 后重启",
-    "设置 API KEY",
-    "设置 KEY",
-  ]
-  if (maxColumns === Number.POSITIVE_INFINITY) return candidates[0]
-  for (const candidate of candidates) {
-    if (textColumns(candidate) <= maxColumns) return candidate
+function fitHint(maxColumns: number, language: Language): string {
+  const forms = pack(language).hintForms
+  if (maxColumns === Number.POSITIVE_INFINITY) return forms[0] ?? ""
+  for (const form of forms) {
+    if (textColumns(form) <= maxColumns) return form
   }
-  return clip(candidates[candidates.length - 1], maxColumns)
+  return clip(forms[forms.length - 1] ?? "", maxColumns)
 }
 
 interface ActionRows extends TitleFit {
@@ -300,33 +302,34 @@ function actionRows(state: string, shortState: string, verb: string, maxColumns:
 }
 
 export function sidebarRows(input: SidebarInput): SidebarRows {
-  const { status, error } = input
+  const { status, error, language } = input
   const maxColumns = input.maxColumns ?? DEFAULT_COLUMNS
-  const lines = status === undefined ? [] : usageLines(status, maxColumns)
+  const lines = status === undefined ? [] : usageLines(status, maxColumns, language)
 
   // No status yet: the body has no numbers to show, only the reason (or that
   // the first read is still in flight).
   if (status === undefined) {
+    const retry = t(language, "action.retry")
     return error === undefined || error.trim() === ""
       ? {
-          ...actionRows("正在读取…", "正在读取…", "重试", maxColumns),
+          ...actionRows(t(language, "state.loading"), t(language, "state.loadingShort"), retry, maxColumns),
           hint: undefined,
           clickable: true,
           lines,
           tone: "idle",
         }
       : {
-          ...actionRows("读取失败", "读取失败", "重试", maxColumns),
+          ...actionRows(t(language, "state.failed"), t(language, "state.failedShort"), retry, maxColumns),
           hint: undefined,
           clickable: true,
-          lines: [shortMessage(error, maxColumns)],
+          lines: [shortMessage(error, maxColumns, language)],
           tone: "error",
         }
   }
 
   if (status.patched && status.hasKey) {
     return {
-      ...actionRows("已启用", "已启用", "停用", maxColumns),
+      ...actionRows(t(language, "state.enabled"), t(language, "state.enabledShort"), t(language, "action.disable"), maxColumns),
       hint: undefined,
       clickable: true,
       lines,
@@ -337,7 +340,12 @@ export function sidebarRows(input: SidebarInput): SidebarRows {
     // DeepSeek was requested but the built-in tool was not found: nothing is
     // actually taken over, so the only honest action is to release the mode.
     return {
-      ...actionRows("未接管内置 websearch", "未接管", "交还", maxColumns),
+      ...actionRows(
+        t(language, "state.unpatched"),
+        t(language, "state.unpatchedShort"),
+        t(language, "action.release"),
+        maxColumns,
+      ),
       hint: undefined,
       clickable: true,
       lines,
@@ -346,7 +354,7 @@ export function sidebarRows(input: SidebarInput): SidebarRows {
   }
   if (status.mode === "native") {
     return {
-      ...actionRows("已停用", "已停用", "启用", maxColumns),
+      ...actionRows(t(language, "state.disabled"), t(language, "state.disabledShort"), t(language, "action.enable"), maxColumns),
       hint: undefined,
       clickable: true,
       lines,
@@ -356,9 +364,9 @@ export function sidebarRows(input: SidebarInput): SidebarRows {
   // A missing key is not something a click can fix, so the title row stands
   // alone and the hint gets its own row directly under it. The env var name
   // only survives on surfaces wide enough for it.
-  const hint = fitHint(maxColumns)
+  const hint = fitHint(maxColumns, language)
   return {
-    ...fitTitle("未配置 API Key", "缺 API Key", maxColumns, undefined),
+    ...fitTitle(t(language, "state.missingKey"), t(language, "state.missingKeyShort"), maxColumns, undefined),
     action: hint,
     hint,
     clickable: false,

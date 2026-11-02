@@ -9,7 +9,8 @@ import { Plugin } from "@opencode/plugin/tui"
 import { createElement, insert, setProp, type JSX } from "@opentui/solid"
 import type { Renderable } from "@opentui/core"
 import { createSignal } from "solid-js"
-import { DeepSeekRpc, readModeResult, readStatus, type SearchStatus } from "../rpc.ts"
+import { DeepSeekRpc, readModeResult, readStatus, type Language, type SearchStatus } from "../rpc.ts"
+import { t } from "../i18n/index.ts"
 import { sidebarCard } from "./card.ts"
 
 const REFRESH_MS = 10_000
@@ -25,6 +26,12 @@ export default Plugin.define({
 
     const describeError = (e: unknown) => (e instanceof Error ? e.message : String(e)).slice(0, ERROR_MAX)
 
+    // One language for every string this half renders. Before the first status
+    // arrives there is nothing to read it from, so the first frame is English;
+    // the reactive card and the host-re-run keymap factory pick up the real one
+    // as soon as the server reports it.
+    const language = (): Language => status()?.language ?? "en"
+
     // `status` takes a required first argument: plain JSON Schema degrades the
     // input type to `unknown`, and the host validates the payload against the
     // method's object schema, so an omitted input is rejected as invalid.
@@ -35,7 +42,7 @@ export default Plugin.define({
           setStatus(next)
           setError(undefined)
         } else {
-          setError("状态数据格式不符")
+          setError(t(language(), "toast.statusMalformed"))
         }
       } catch (e) {
         setError(describeError(e))
@@ -46,7 +53,7 @@ export default Plugin.define({
     async function applyMode(mode: "deepseek" | "native") {
       try {
         const result = readModeResult(await rpc.setMode({ mode }))
-        if (!result) ctx.ui.toast.show({ message: "模式切换结果格式不符", variant: "error" })
+        if (!result) ctx.ui.toast.show({ message: t(language(), "toast.modeMalformed"), variant: "error" })
         else if (!result.ok) ctx.ui.toast.show({ message: result.message, variant: "error" })
       } catch (e) {
         ctx.ui.toast.show({ message: describeError(e), variant: "error" })
@@ -72,11 +79,11 @@ export default Plugin.define({
     // entry point that always works (keymap command + `/deepseek` slash).
     async function openMenu() {
       const choice = await ctx.ui.dialog.select<"deepseek" | "native" | "refresh">({
-        title: "DeepSeek 搜索",
+        title: t(language(), "dialog.title"),
         options: [
-          { title: "启用", value: "deepseek", description: "接管内置 websearch" },
-          { title: "停用", value: "native", description: "把内置 websearch 交还宿主" },
-          { title: "刷新", value: "refresh", description: "重新读取状态与统计" },
+          { title: t(language(), "dialog.enable"), value: "deepseek", description: t(language(), "dialog.enableDesc") },
+          { title: t(language(), "dialog.disable"), value: "native", description: t(language(), "dialog.disableDesc") },
+          { title: t(language(), "dialog.refresh"), value: "refresh", description: t(language(), "dialog.refreshDesc") },
         ],
         current: status()?.mode,
       })
@@ -106,6 +113,7 @@ export default Plugin.define({
           sidebarCard({
             status: status(),
             error: error(),
+            language: language(),
             theme: ctx.theme,
             onToggle: toggle,
             maxColumns: width(),
@@ -121,7 +129,7 @@ export default Plugin.define({
       commands: [
         {
           id: "deepseek-search.toggle",
-          title: "DeepSeek: 启用/停用搜索接管",
+          title: t(language(), "command.toggle"),
           slash: { name: "deepseek" },
           run: () => void openMenu(),
         },

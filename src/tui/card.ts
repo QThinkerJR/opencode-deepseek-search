@@ -3,7 +3,7 @@
 import type { JSX } from "@opentui/solid"
 import type { ResolvedTheme } from "@opencode/theme/tui"
 import { createElement, insert, setProp } from "@opentui/solid"
-import type { SearchStatus } from "../rpc.ts"
+import type { Language, SearchStatus } from "../rpc.ts"
 import { DEFAULT_COLUMNS, sidebarRows } from "../status-view.ts"
 import type { SidebarRows } from "../status-view.ts"
 
@@ -72,6 +72,8 @@ function element(tag: string, props: Props | undefined, children: readonly Child
 export function sidebarCard(input: {
   readonly status: SearchStatus | undefined
   readonly error: string | undefined
+  /** UI language resolved by the server; the card never picks one itself. */
+  readonly language: Language
   readonly theme: ResolvedTheme
   readonly onToggle: () => void
   /**
@@ -87,6 +89,7 @@ export function sidebarCard(input: {
     status: input.status,
     error: input.error,
     maxColumns: cardColumns(input.maxColumns),
+    language: input.language,
   })
   const theme = input.theme
   const state = toneColor(theme, rows.tone)

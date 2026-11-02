@@ -14,6 +14,7 @@ import {
   type SessionPanelMenuItem,
 } from "@opencode/plugin/gui"
 import { createSignal } from "solid-js"
+import { t } from "../i18n/index.ts"
 import { DeepSeekRpc, readModeResult, readStatus, type SearchStatus } from "../rpc.ts"
 import { DeepSeekPanel } from "./panel.tsx"
 
@@ -30,6 +31,10 @@ export default Plugin.define({
     const [error, setError] = createSignal<string | undefined>()
     const [busy, setBusy] = createSignal(false)
 
+    // The desktop side has no forced locale: the server resolves the language
+    // and carries it in `status`, so every label follows that signal.
+    const language = () => status()?.language ?? "en"
+
     const describeError = (e: unknown) => (e instanceof Error ? e.message : String(e)).slice(0, ERROR_MAX)
 
     // `status` takes a required first argument: plain JSON Schema degrades the
@@ -42,7 +47,7 @@ export default Plugin.define({
           setStatus(next)
           setError(undefined)
         } else {
-          setError("状态数据格式不符")
+          setError(t(language(), "toast.statusMalformed"))
         }
       } catch (e) {
         setError(describeError(e))
@@ -53,7 +58,7 @@ export default Plugin.define({
       setBusy(true)
       try {
         const result = readModeResult(await rpc.setMode({ mode: next }))
-        if (!result) ctx.toast.show({ title: "DeepSeek", description: "模式切换结果格式不符", variant: "error" })
+        if (!result) ctx.toast.show({ title: "DeepSeek", description: t(language(), "toast.modeMalformed"), variant: "error" })
         else if (!result.ok) ctx.toast.show({ title: "DeepSeek", description: result.message, variant: "error" })
       } catch (e) {
         ctx.toast.show({ title: "DeepSeek", description: describeError(e), variant: "error" })
@@ -96,18 +101,20 @@ export default Plugin.define({
     const openPanel = () => {
       const session = ctx.sessions.current()
       if (!session) {
-        ctx.toast.show({ title: "DeepSeek", description: "请先打开一个会话" })
+        ctx.toast.show({ title: "DeepSeek", description: t(language(), "toast.openSessionFirst") })
         return
       }
       ctx.layout.open(`${ctx.id}:main`, session)
     }
 
-    ctx.add(Command, {
+    // A factory, because the palette label has to follow the language that
+    // arrives with the status signal.
+    ctx.add(Command, (): Command => ({
       id: "open",
-      title: "DeepSeek: 打开统计面板",
+      title: t(language(), "command.open"),
       section: "session",
       run: openPanel,
-    })
+    }))
 
     // The new-tab launcher and the + menu list `session.panel` items, not panel
     // tabs, so without this the panel is reachable only by typing the command.
@@ -119,7 +126,7 @@ export default Plugin.define({
         menu: "session.panel",
         id: "open",
         title: "DeepSeek",
-        description: "搜索用量与接管开关",
+        description: t(language(), "menu.description"),
         icon: "globe",
         order: 60,
         opened,

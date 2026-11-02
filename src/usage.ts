@@ -134,7 +134,7 @@ export function formatUsage(
 
 /**
  * Compact one-line summaries for a status display, keyed by period. Callers add
- * the 今日/本月/累计 labels themselves. Costs are read from the ledger, which
+ * the localized period label themselves. Costs are read from the ledger, which
  * already accumulated them at tally time.
  */
 export function usageSummaryLines(
