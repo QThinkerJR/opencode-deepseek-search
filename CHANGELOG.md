@@ -3,6 +3,24 @@
 All notable changes to this package. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the version numbers follow [Semantic Versioning](https://semver.org/).
 
+## [0.3.0] - 2026-11-02
+
+### Added
+
+- **UI languages `en` / `ja` / `zh-CN`**: the server resolves the language once (`options.language` > `LC_ALL`/`LANG` >
+  English) and carries it to both sidebars over RPC, so tool output, the TUI card, the desktop panel, commands, menus
+  and dialogs always speak the same language. Every language owns its narrow-width ladder; the Japanese copy is new and
+  the Chinese copy keeps the previous wording.
+- `options.language` (`"en" | "ja" | "zh-CN"`, unset = auto). An unknown value logs a warning and falls back to
+  auto-detection instead of blocking the plugin.
+
+### Changed
+
+- **The default UI language is now English.** To keep the previous Chinese interface, set `"language": "zh-CN"` in the
+  plugin options; the sidebars pick it up on their next status read (a restart always works).
+- Console diagnostics are English in every language, and the `deepseek_fetch` Markdown header follows the UI language
+  instead of a hardcoded Chinese `来源:`.
+
 ## [0.2.1] - 2026-11-02
 
 ### Changed
