@@ -42,6 +42,8 @@ Then add the plugin to `opencode.jsonc`:
 }
 ```
 
+> **Which file loads which half.** The server plugin and the desktop panel are read from `opencode.json(c)` — the desktop app reads only that file, and a **global** `~/.config/opencode/opencode.jsonc` entry is what makes the panel appear in every window. The TUI half is read from `cli.json` (`"plugins": [...]`). So a plugin is enabled per half: list it in each file whose half you want, whether it comes from npm (by package name) or from a local directory (by path).
+
 With options (recommended — this is where `mode` and friends live):
 
 ```jsonc

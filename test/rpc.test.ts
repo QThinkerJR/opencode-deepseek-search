@@ -13,6 +13,9 @@ const STATUS = {
   total: "搜索 3 · 抓取 2 · 空/失 2 · ¥0.0250",
 }
 
+const COUNTS = { search: 3, fetch: 2, empty: 1, failed: 1, costMicro: 25_000 }
+const WITH_COUNTS = { ...STATUS, counts: { today: COUNTS, month: COUNTS, total: COUNTS } }
+
 test("contract exposes the agreed id, methods and changed event", () => {
   assert.equal(DEEPSEEK_RPC_ID, "deepseek-search")
   assert.equal(DeepSeekRpc.id, DEEPSEEK_RPC_ID)
@@ -52,6 +55,71 @@ test("readStatus returns a clean copy of a valid payload", () => {
   assert.deepEqual(readStatus(native), native)
   // Unknown extra fields are dropped, never propagated to the caller.
   assert.deepEqual(readStatus({ ...STATUS, extra: true }), STATUS)
+})
+
+test("status output schema carries optional structured counts", () => {
+  const schema = DeepSeekRpc.methods.status.output
+  const counts = (schema.properties as Record<string, any>).counts
+  assert.equal(counts.type, "object")
+  assert.equal(counts.additionalProperties, false)
+  assert.deepEqual(counts.required, ["today", "month", "total"])
+  assert.equal((schema.required as readonly string[]).includes("counts"), false)
+  for (const period of ["today", "month", "total"]) {
+    const bucket = counts.properties[period]
+    assert.deepEqual(bucket.required, ["search", "fetch", "empty", "failed", "costMicro"])
+    assert.equal(bucket.additionalProperties, false)
+    for (const field of bucket.required) assert.equal(bucket.properties[field].type, "integer")
+  }
+})
+
+test("readStatus accepts a payload without counts", () => {
+  const status = readStatus(STATUS)
+  assert.deepEqual(status, STATUS)
+  assert.equal("counts" in (status as object), false)
+})
+
+test("readStatus keeps a valid counts triple and drops unknown keys inside it", () => {
+  assert.deepEqual(readStatus(WITH_COUNTS), WITH_COUNTS)
+  const noisy = {
+    ...STATUS,
+    counts: {
+      today: { ...COUNTS, extra: 1 },
+      month: { ...COUNTS, extra: 2 },
+      total: { ...COUNTS, extra: 3 },
+    },
+  }
+  assert.deepEqual(readStatus(noisy), WITH_COUNTS)
+})
+
+test("readStatus drops a malformed counts triple but keeps the rest", () => {
+  const broken: unknown[] = [
+    null,
+    "counts",
+    42,
+    {},
+    { today: COUNTS, month: COUNTS },
+    { today: COUNTS, month: COUNTS, total: { ...COUNTS, search: 1.5 } },
+    { today: COUNTS, month: COUNTS, total: { ...COUNTS, costMicro: Number.NaN } },
+  ]
+  for (const counts of broken) {
+    assert.deepEqual(readStatus({ ...STATUS, counts }), STATUS)
+  }
+})
+
+test("readStatus rejects non-integer and non-finite counters inside counts", () => {
+  const badCount = [1.5, -1, Number.NaN, Number.POSITIVE_INFINITY, "3", true, undefined]
+  for (const value of badCount) {
+    for (const field of ["search", "fetch", "empty", "failed"]) {
+      const bucket = { ...COUNTS, [field]: value }
+      const raw = { ...STATUS, counts: { today: COUNTS, month: bucket, total: COUNTS } }
+      assert.deepEqual(readStatus(raw), STATUS, `${field} = ${String(value)} drops counts`)
+    }
+  }
+  const badCost = [-1, Number.NaN, Number.POSITIVE_INFINITY, "25000", true, undefined]
+  for (const value of badCost) {
+    const raw = { ...STATUS, counts: { today: COUNTS, month: COUNTS, total: { ...COUNTS, costMicro: value } } }
+    assert.deepEqual(readStatus(raw), STATUS, `costMicro = ${String(value)} drops counts`)
+  }
 })
 
 test("readModeResult narrows the switch result", () => {

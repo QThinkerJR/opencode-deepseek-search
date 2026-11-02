@@ -34,6 +34,7 @@ import {
   formatUsage,
   formatYuan,
   parseLedger,
+  sumDays,
   usageSummaryLines,
   type Tally,
   type UsageLedger,
@@ -363,16 +364,24 @@ export default Plugin.define({
     rpcRegistration = await ctx.rpc.register(DeepSeekRpc, {
       // Reads through `withLedger` so it observes the same serialized chain.
       status: async (): Promise<SearchStatus> =>
-        withLedger(
-          (ledger): SearchStatus => ({
+        withLedger((ledger): SearchStatus => {
+          const todayKey = dayKey()
+          return {
             mode,
             source: overrideMode ? "override" : "config",
             patched: searchToolPatched,
             hasKey: Boolean(apiKey),
             pricePerThousand,
-            ...usageSummaryLines(ledger),
-          }),
-        ),
+            ...usageSummaryLines(ledger, todayKey),
+            // Same ledger read as the strings above, exposed as numbers so the
+            // sidebars can lay them out for their own width.
+            counts: {
+              today: sumDays(ledger, (k) => k === todayKey),
+              month: sumDays(ledger, (k) => k.startsWith(todayKey.slice(0, 7))),
+              total: sumDays(ledger, () => true),
+            },
+          }
+        }),
       // The input is plain JSON Schema, hence `unknown`: report, never throw.
       setMode: async (input: unknown): Promise<ModeSwitchResult> => {
         let action: ModeAction

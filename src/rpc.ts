@@ -13,6 +13,20 @@ import type { Rpc } from "@opencode/plugin/rpc"
 
 export const DEEPSEEK_RPC_ID = "deepseek-search"
 
+// Shared by the today/month/total slots of `status.counts`.
+const USAGE_COUNTS_SCHEMA = {
+  type: "object",
+  properties: {
+    search: { type: "integer" },
+    fetch: { type: "integer" },
+    empty: { type: "integer" },
+    failed: { type: "integer" },
+    costMicro: { type: "integer" },
+  },
+  required: ["search", "fetch", "empty", "failed", "costMicro"],
+  additionalProperties: false,
+} as const
+
 export const DeepSeekRpc = {
   id: DEEPSEEK_RPC_ID,
   methods: {
@@ -29,6 +43,16 @@ export const DeepSeekRpc = {
           today: { type: "string" },
           month: { type: "string" },
           total: { type: "string" },
+          counts: {
+            type: "object",
+            properties: {
+              today: USAGE_COUNTS_SCHEMA,
+              month: USAGE_COUNTS_SCHEMA,
+              total: USAGE_COUNTS_SCHEMA,
+            },
+            required: ["today", "month", "total"],
+            additionalProperties: false,
+          },
         },
         required: ["mode", "source", "patched", "hasKey", "pricePerThousand", "today", "month", "total"],
         additionalProperties: false,
@@ -61,6 +85,14 @@ export const DeepSeekRpc = {
   },
 } satisfies Rpc.PortableDefinition
 
+export interface UsageCounts {
+  search: number
+  fetch: number
+  empty: number
+  failed: number
+  costMicro: number
+}
+
 export interface SearchStatus {
   mode: "deepseek" | "native"
   source: "override" | "config"
@@ -70,6 +102,8 @@ export interface SearchStatus {
   today: string
   month: string
   total: string
+  /** Structured counters, so each surface can format for its own width. Optional for older servers. */
+  counts?: { today: UsageCounts; month: UsageCounts; total: UsageCounts }
 }
 
 export interface ModeSwitchResult {
@@ -86,16 +120,35 @@ function isMode(value: unknown): value is SearchStatus["mode"] {
   return value === "deepseek" || value === "native"
 }
 
+/** Strict read of one counter bucket: all five fields, integers ≥ 0, finite cost. */
+function readUsageCounts(value: unknown): UsageCounts | undefined {
+  if (!isRecord(value)) return undefined
+  const { search, fetch, empty, failed, costMicro } = value
+  for (const count of [search, fetch, empty, failed]) {
+    if (typeof count !== "number" || !Number.isInteger(count) || count < 0) return undefined
+  }
+  if (typeof costMicro !== "number" || !Number.isFinite(costMicro) || costMicro < 0) return undefined
+  return { search, fetch, empty, failed, costMicro } as UsageCounts
+}
+
 /** Defensive read of an RPC `status` result. Never throws. */
 export function readStatus(raw: unknown): SearchStatus | undefined {
   if (!isRecord(raw)) return undefined
-  const { mode, source, patched, hasKey, pricePerThousand, today, month, total } = raw
+  const { mode, source, patched, hasKey, pricePerThousand, today, month, total, counts } = raw
   if (!isMode(mode)) return undefined
   if (source !== "override" && source !== "config") return undefined
   if (typeof patched !== "boolean" || typeof hasKey !== "boolean") return undefined
   if (typeof pricePerThousand !== "number" || !Number.isFinite(pricePerThousand)) return undefined
   if (typeof today !== "string" || typeof month !== "string" || typeof total !== "string") return undefined
-  return { mode, source, patched, hasKey, pricePerThousand, today, month, total }
+  const status: SearchStatus = { mode, source, patched, hasKey, pricePerThousand, today, month, total }
+  // Old servers omit `counts`; a malformed triple is dropped without failing the rest.
+  if (isRecord(counts)) {
+    const todayCounts = readUsageCounts(counts.today)
+    const monthCounts = readUsageCounts(counts.month)
+    const totalCounts = readUsageCounts(counts.total)
+    if (todayCounts && monthCounts && totalCounts) status.counts = { today: todayCounts, month: monthCounts, total: totalCounts }
+  }
+  return status
 }
 
 /** Defensive read of an RPC `setMode` result. Never throws. */

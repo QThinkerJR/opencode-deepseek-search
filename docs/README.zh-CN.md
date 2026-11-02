@@ -34,6 +34,10 @@ opencode service restart   # User 变量只进新进程
 }
 ```
 
+> **哪个文件加载哪个半边。** 服务端插件与桌面面板读的是 `opencode.json(c)`——桌面应用只读这个文件，且要写进**全局**的
+> `~/.config/opencode/opencode.jsonc` 才会在每个窗口生效；TUI 半边读的是 `cli.json` 的 `"plugins": [...]`。
+> 也就是说启用是**按半边**算的：想用哪半边就把它列进对应文件（npm 包写包名，本地目录写路径）。
+
 带选项（推荐，`mode` 等都在这里）：
 
 ```jsonc

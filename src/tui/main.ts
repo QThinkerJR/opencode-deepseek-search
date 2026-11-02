@@ -7,6 +7,7 @@
 
 import { Plugin } from "@opencode/plugin/tui"
 import { createElement, insert, setProp, type JSX } from "@opentui/solid"
+import type { Renderable } from "@opentui/core"
 import { createSignal } from "solid-js"
 import { DeepSeekRpc, readModeResult, readStatus, type SearchStatus } from "../rpc.ts"
 import { sidebarCard } from "./card.ts"
@@ -88,14 +89,27 @@ export default Plugin.define({
     // fresh root and lets `insert` own the reactive child that repaints the card
     // when the signals change. A root created once in setup cannot be mounted
     // by a second render call (the published plugins build per call too).
+    // The sidebar's real column count decides whether the card can show the
+    // wordy usage rows; the host only reports it after layout, so the first
+    // render falls back to the model's own budget and this repaints on resize.
+    const [width, setWidth] = createSignal(0)
     const disposeSlot = ctx.ui.slot({
       append: "sidebar.content",
       render: () => {
-        const root = createElement("box")
+        // `createElement` is typed as the base class; the laid-out node is a
+        // Renderable, whose `width` is what the card needs. One cast here.
+        const root = createElement("box") as unknown as Renderable
         setProp(root, "width", "100%")
         setProp(root, "flexDirection", "column")
+        setProp(root, "onSizeChange", () => setWidth(root.width))
         insert(root, () =>
-          sidebarCard({ status: status(), error: error(), theme: ctx.theme, onToggle: toggle }),
+          sidebarCard({
+            status: status(),
+            error: error(),
+            theme: ctx.theme,
+            onToggle: toggle,
+            maxColumns: width(),
+          }),
         )
         // `render` is declared to return JSX.Element while the tree here is a
         // hand-built renderable: cast once, at the single boundary.

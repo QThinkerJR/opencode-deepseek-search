@@ -1,11 +1,27 @@
 // The `sidebar.content` card: no frame of its own (the host sidebar already has
-// one), one column, full width, and only the last row is interactive.
+// one), one column, full width, and only the action label is interactive.
 import type { JSX } from "@opentui/solid"
 import type { ResolvedTheme } from "@opencode/theme/tui"
 import { createElement, insert, setProp } from "@opentui/solid"
 import type { SearchStatus } from "../rpc.ts"
-import { sidebarRows } from "../status-view.ts"
+import { DEFAULT_COLUMNS, sidebarRows } from "../status-view.ts"
 import type { SidebarRows } from "../status-view.ts"
+
+/** A measured width under this cannot show even the usage label; treat it as unmeasured. */
+const MIN_CARD_COLUMNS = 8
+
+/**
+ * Columns the card may use. Before the first layout pass the host reports 0 (or
+ * nothing at all), so both — and any other unusable value — fall back to the
+ * narrow default: the first frame is a whole card rather than a one-column
+ * strip, and the next measurement replaces it.
+ */
+export function cardColumns(measured: number | undefined): number {
+  if (measured === undefined || !Number.isFinite(measured) || measured < MIN_CARD_COLUMNS) {
+    return DEFAULT_COLUMNS
+  }
+  return Math.floor(measured)
+}
 
 type Node = ReturnType<typeof createElement>
 type Child = string | Node
@@ -58,59 +74,101 @@ export function sidebarCard(input: {
   readonly error: string | undefined
   readonly theme: ResolvedTheme
   readonly onToggle: () => void
+  /**
+   * Columns the sidebar really gives the card, measured by the host. Optional
+   * so the slot still builds before that measurement exists; the fallback in
+   * `cardColumns` covers 0 and any unusable value.
+   */
+  readonly maxColumns?: number
 }): JSX.Element {
-  const rows = sidebarRows({ status: input.status, error: input.error })
+  // The terminal sidebar is the surface this ladder is tuned for: the measured
+  // width, not a guessed constant, decides whether the words fit.
+  const rows = sidebarRows({
+    status: input.status,
+    error: input.error,
+    maxColumns: cardColumns(input.maxColumns),
+  })
   const theme = input.theme
   const state = toneColor(theme, rows.tone)
 
-  // A usage line is ~40 columns including its label, so it cannot stay on one
-  // line in a narrow sidebar. Break only at the existing ` · ` boundaries so
-  // each number stays next to its label instead of splitting `空/失 0`. A short
-  // error row has no separator and passes through as a single chunk.
-  const body = rows.lines.map((line) => {
-    const at = line.indexOf(" ")
-    const head = at < 0 ? "" : line.slice(0, at + 1)
-    const parts = (at < 0 ? line : line.slice(at + 1)).split(" · ")
-    const chunks = [`${head}${parts[0] ?? ""}`, ...parts.slice(1).map((part) => ` · ${part}`)]
-    return element(
-      "box",
-      { flexDirection: "row", flexWrap: "wrap", width: "100%" },
-      chunks.map((chunk) =>
-        element("text", { content: chunk, fg: theme.text.muted, flexShrink: 0 }),
-      ),
-    )
-  })
+  const onAction = (event: { preventDefault(): void }) => {
+    event.preventDefault()
+    input.onToggle()
+  }
 
-  const root = element("box", { flexDirection: "column", flexShrink: 0, width: "100%", marginTop: 1 }, [
-    // The tone colors only the glyph: the state is already spelled out, and a
-    // fully tinted headline would shout inside someone else's sidebar.
-    element("text", { selectable: false, wrapMode: "word", width: "100%" }, [
-      element("span", { style: { fg: state } }, [`${GLYPH[rows.tone]} `]),
-      element("span", { style: { fg: theme.text.base } }, [rows.title]),
-    ]),
+  // The title row is a flex row so the action sits at the card's right edge
+  // instead of trailing the title. `space-between` is what guarantees that: the
+  // title grows into the gap, and if the host ever ignores `flexGrow` the action
+  // is still pushed to the far edge. The title is measured by the view model and
+  // never wraps; the action keeps its own width and owns the only click handler,
+  // so a click can never toggle twice.
+  const titleSpans: Child[] = [
+    element("span", { style: { fg: theme.text.base } }, [rows.title]),
+  ]
+  if (rows.glyph) {
+    titleSpans.unshift(element("span", { style: { fg: state } }, [`${GLYPH[rows.tone]} `]))
+  }
+  const title = element(
+    "text",
+    { selectable: false, wrapMode: "none", flexGrow: 1, flexShrink: 1 },
+    titleSpans,
+  )
+  // A state without an action (a missing key) keeps the title row to itself;
+  // its fix copy is rendered as the hint row instead.
+  const action =
+    rows.clickable && rows.action.length > 0
+      ? element(
+          "text",
+          {
+            selectable: false,
+            wrapMode: "none",
+            flexShrink: 0,
+            onMouseUp: onAction,
+          },
+          [element("span", { style: { fg: theme.text.muted } }, [rows.action])],
+        )
+      : undefined
+  // The model decides whether the action can share the title row. When it
+  // cannot, the action gets a row of its own but keeps the same right edge: the
+  // title is never shortened just to squeeze the action in beside it.
+  const titleRow = element(
+    "box",
+    { flexDirection: "row", justifyContent: "space-between", flexShrink: 0, width: "100%" },
+    action === undefined || rows.actionBelow ? [title] : [title, action],
+  )
+  const actionRow =
+    action === undefined || !rows.actionBelow
+      ? undefined
+      : element(
+          "box",
+          { flexDirection: "row", justifyContent: "flex-end", flexShrink: 0, width: "100%" },
+          [action],
+        )
+
+  // The model already composed every row to fit the sidebar, so each body row
+  // is one text node: the host must never get the chance to wrap it.
+  const body = rows.lines.map((line) =>
+    element("text", { content: line, fg: theme.text.muted, wrapMode: "none", width: "100%" }),
+  )
+  // A missing key has no action, so the fix hint gets the row right under the
+  // title. It is plain text: there is nothing to click.
+  const hint =
+    rows.hint === undefined
+      ? []
+      : [
+          element("text", {
+            content: rows.hint,
+            fg: theme.text.muted,
+            wrapMode: "none",
+            width: "100%",
+          }),
+        ]
+
+  const root = element("box", { flexDirection: "column", flexShrink: 0, width: "100%" }, [
+    titleRow,
+    ...(actionRow === undefined ? [] : [actionRow]),
+    ...hint,
     ...body,
-    // The affordance is a muted glyph plus label, not a fake button. One blank
-    // row keeps it from reading as a fourth stat. States with nothing to do
-    // (a missing key) render the same row without a handler.
-    element(
-      "text",
-      {
-        selectable: false,
-        wrapMode: "word",
-        width: "100%",
-        marginTop: 1,
-        onMouseUp: rows.clickable
-          ? (event: { preventDefault(): void }) => {
-              event.preventDefault()
-              input.onToggle()
-            }
-          : undefined,
-      },
-      [
-        element("span", { style: { fg: theme.text.faint } }, ["› "]),
-        element("span", { style: { fg: theme.text.muted } }, [rows.action]),
-      ],
-    ),
   ])
 
   // createElement returns a renderable; the slot API is typed with Solid's
