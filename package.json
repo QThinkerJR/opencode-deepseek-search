@@ -1,7 +1,7 @@
 {
     "name":  "@qthinker/opencode-deepseek-search",
     "version":  "0.1.1",
-    "description":  "DeepSeek Search \u0026 Fetch for OpenCode V2: a switchable websearch backend, clean Markdown fetch, and local usage/cost stats",
+    "description":  "DeepSeek Search \u0026 Fetch for OpenCode V2: a switchable websearch backend, clean Markdown fetch, local usage/cost stats, and TUI + desktop sidebars",
     "type":  "module",
     "license":  "MIT",
     "author":  "QThinker",
@@ -21,7 +21,10 @@
                      "search",
                      "fetch",
                      "usage",
-                     "cost"
+                     "cost",
+                     "tui",
+                     "desktop",
+                     "sidebar"
                  ],
     "files":  [
                   "index.ts",

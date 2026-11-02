@@ -1,9 +1,9 @@
 # OpenCode V2 的 DeepSeek 搜索插件
 
 把 DeepSeek Search / Fetch 接进 OpenCode V2：**内置 `websearch` 工具直接走 DeepSeek**，另带干净的 Markdown
-抓取、本地用量/费用统计，以及一个**持久化**的后端开关。
+抓取、本地用量/费用统计、一个**持久化**的后端开关，以及**TUI 与桌面侧边栏**——直接显示状态与数字，一点就切换接管。
 
-切回原生有三种方式：改配置 `mode`、让模型调 `deepseek_mode`、或跑仓库里的 `tools/switch-mode.ps1`。
+切回原生：侧边栏开关、改配置 `mode`、让模型调 `deepseek_mode`、或跑仓库里的 `tools/switch-mode.ps1`。
 
 与已占用的同名 V1 包的区别：本项目面向 **V2 插件 API**、支持**运行时切换后端**、自带**本地用量与费用估算**。
 
@@ -15,6 +15,7 @@
 - `opencode >= 2.2.5`（V2 插件 API）
 - Node.js `>= 22.18`（插件直接发布 TypeScript 源码）
 - 具备 Search/Fetch 权限的 DeepSeek API Key
+- 侧边栏不需要额外依赖：渲染器由 TUI / 桌面应用提供（`@opentui/*`、`solid-js`），两个半边都从同一个包里加载
 
 ## 安装
 
@@ -65,8 +66,11 @@ opencode service restart   # User 变量只进新进程
 }
 ```
 
-`opencode plugin list` 里应出现 `deepseek-search`。**改配置立即生效**：插件会原位置重跑，不需要 `/reload`
-或重启服务。
+`opencode plugin add <包名或目录>` 会替你做同样的修改（写的是**全局**配置）；之后 `opencode plugin list`
+里应出现 `deepseek-search`，来源为 `local` 或包名。
+
+重载规则：**服务端半边**保存源码后原位置重跑，不需要 `/reload`、也不用重启服务；另外两个半边是客户端——
+改了 `tui.ts` 要**重启 TUI**，改了 `gui-experimental.cjs` 要**重载桌面窗口**（从源码目录跑时先 `npm run build:gui`）。
 
 ## 选项
 
@@ -92,10 +96,11 @@ opencode service restart   # User 变量只进新进程
 
 ## 切换搜索后端
 
-### 三种方式
+### 几种方式
 
 | 方式 | 操作 | 持久化 | 适用 |
 |---|---|---|---|
+| 侧边栏 | 点 TUI 卡片上的动作（`[停用]` / `[启用]`），或桌面面板的按钮 | 是（插件存储 `mode/v1`） | 正在干活时随手切 |
 | 配置 | 改 `options.mode`，保存即生效 | 是（在配置文件里） | 长期默认值 |
 | 工具 | 让模型调 `deepseek_mode`，或自己调 | 是（插件存储 `mode/v1`） | 临时/在会话里切，不用改文件 |
 | 脚本 | `.\tools\switch-mode.ps1 native` | 是（脚本改配置文件） | 命令行快速切，不用开编辑器 |
@@ -137,8 +142,8 @@ deepseek_mode 开关（storage: mode/v1）  >  options.mode  >  内置默认
 
 | 面 | 你会看到 | 怎么切 |
 |---|---|---|
-| TUI | 会话侧边栏末尾追加一块 DeepSeek：状态行 + 今日 / 本月 / 累计（`搜索` · `抓取` · `空/失` · `¥` 估算） | 点动作行，或用 `/deepseek` 斜杠命令打开菜单 |
-| 桌面 | 会话侧区域的 **DeepSeek** 页签，用命令 `DeepSeek: 打开统计面板` 打开 | 面板上的按钮，另有刷新按钮 |
+| TUI | 会话侧边栏末尾追加一块 DeepSeek：状态行 + 今日 / 本月 / 累计（`Search` · `Fetch` · `¥` 估算）；侧边栏变窄时先退化到缩写、再逐个减列，不会折行 | 点标题右端的动作，或用 `/deepseek` 斜杠命令打开菜单 |
+| 桌面 | 会话侧区域的 **DeepSeek** 页签，出现在侧区域的 *New tab* 列表与 `+` 菜单里，也可用命令 `DeepSeek: 打开统计面板` | 面板上的按钮，另有刷新按钮 |
 
 - 两个面读的是同一份账本和同一个持久化开关（与 `deepseek_usage` / `deepseek_mode` 完全一致）：数据只有服务端
   一份真相，经插件自己的 RPC 取用，TUI 与桌面的数字不会分叉。
@@ -194,16 +199,21 @@ API Key 不写日志。
 | `429` 触发限速 | 已退避重试一次，稍后再试 |
 | Fetch 报 `403` / `404` | 站点策略拦截或无正文可提取，可改用内置 `webfetch` |
 | 搜索仍是原生后端 | `mode` 或持久化开关为 `native`；若两处都已完成仍如此，说明未找到内置 `websearch` 工具，用配置 `"websearch": { "provider": "deepseek" }` |
+| TUI 侧边栏里没有 DeepSeek 卡片 | TUI 半边由 `cli.json` 的 `"plugins": [...]` 启用，不是 `opencode.jsonc`；把路径/包名加进去后重启 TUI |
+| 桌面 New tab 列表里没有 DeepSeek | 桌面只读**全局** `opencode.jsonc`；且 bundle 必须存在——从源码目录跑时先 `npm run build:gui`，再重载窗口 |
+| 侧边栏显示「读取失败」 | 该半边连不上 RPC：先 `opencode plugin list` 确认 `deepseek-search` 处于 active，再到 `~/.local/share/opencode/log/opencode.log` 里看 `/api/rpc/deepseek-search/status`。若是 `400 rpc.invalid_input`，说明半边与服务端契约不一致——重载那个客户端 |
 
 ## 本地开发与自检
 
 ```powershell
 cd D:\repos\opencode-deepseek-search
 npm install
-npm run typecheck     # tsc --noEmit
+npm run typecheck     # tsc --noEmit，服务端/TUI 与 GUI 两个配置各跑一次
 npm test              # node --test，纯函数单测（零成本）
+npm run build:gui     # src/gui -> gui-experimental.cjs（桌面半边的 bundle）
+node --experimental-strip-types scripts/check-gui-bundle.ts   # bundle 形态检查，CI 里会跑
 npm run smoke         # 真实调用冒烟，无 DEEPSEEK_API_KEY 自动 skip
-npm pack --dry-run    # 发布前产物审计
+npm pack --dry-run    # 发布前产物审计——先跑 build:gui，`pack` 本身不会构建 bundle
 ```
 
 一键切换（仓库内脚本，改的是 `opencode.jsonc` 的 `options.mode`，写前备份 `opencode.jsonc.bak-switch`）：

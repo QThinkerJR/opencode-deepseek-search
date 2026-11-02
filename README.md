@@ -6,9 +6,10 @@
 [![opencode](https://img.shields.io/badge/opencode-%E2%89%A52.2.5-black)](https://opencode.ai)
 
 DeepSeek Search & Fetch as an OpenCode V2 plugin: **the built-in `websearch` tool routes to DeepSeek**, plus a clean
-Markdown fetch tool, local usage/cost stats, and a **persisted** backend switch.
+Markdown fetch tool, local usage/cost stats, a **persisted** backend switch, and **TUI + desktop sidebars** that show
+the state and the numbers and flip the takeover with one click.
 
-Three ways back to native search: change the `mode` option, ask the model to call `deepseek_mode`, or run
+Ways back to native search: the sidebar switch, the `mode` option, a `deepseek_mode` call, or
 `tools/switch-mode.ps1` from the repo.
 中文说明见 [docs/README.zh-CN.md](https://github.com/QThinkerJR/opencode-deepseek-search/blob/main/docs/README.zh-CN.md)。
 
@@ -23,6 +24,8 @@ runtime**, and reports **local usage and estimated cost**.
 - `opencode >= 2.2.5` (V2 plugin API)
 - Node.js `>= 22.18` (the plugin ships TypeScript sources)
 - A DeepSeek API key with Search/Fetch access
+- For the sidebars: nothing extra — the TUI and the desktop app provide the renderer (`@opentui/*`, `solid-js`) and
+  load the plugin's two halves from the same package
 
 ## Install
 
@@ -71,8 +74,12 @@ Local development points at the repository directory (a config entry must be a *
 }
 ```
 
-`opencode plugin list` should show `deepseek-search`. Config changes take effect immediately: the plugin is
-re-run in place, no `/reload` or service restart needed.
+`opencode plugin add <package-or-directory>` does the same edit for you (it writes the **global** config), and
+`opencode plugin list` should then show `deepseek-search` with source `local` or the package name.
+
+Reload rules: the **server half** re-runs in place when you save a source file — no `/reload`, no service restart.
+The other two halves are clients: restart the **TUI**, and reload the **desktop window**, to pick up a change to
+`tui.ts` / `gui-experimental.cjs` (and run `npm run build:gui` first when working from a clone).
 
 ## Options
 
@@ -99,10 +106,11 @@ and `need_content` is never requested.
 
 ## Switching backends
 
-### Three ways
+### Ways to switch
 
 | Way | How | Persisted | Use it for |
 |---|---|---|---|
+| Sidebar | Click the action on the TUI card (`[停用]` / `[启用]`), or the panel's button | Yes (plugin storage `mode/v1`) | While you are working |
 | Config | Edit `options.mode`; applies on save | Yes (in the config file) | The long-term default |
 | Tool | Ask the model to call `deepseek_mode`, or call it yourself | Yes (plugin storage `mode/v1`) | Switching mid-session without touching files |
 | Script | `.\tools\switch-mode.ps1 native` | Yes (the script edits the config) | Quick switch from a terminal, no editor |
@@ -147,8 +155,8 @@ The plugin also shows up where you work, and can be switched without the model o
 
 | Surface | What you get | How to switch |
 |---|---|---|
-| TUI | A DeepSeek block appended to the session sidebar: state, then 今日 / 本月 / 累计 rows (`搜索` · `抓取` · `空/失` · `¥` estimate) | Click the action row, or run the `/deepseek` slash command for a menu |
-| Desktop | A **DeepSeek** tab in a session's side region, opened with the `DeepSeek: 打开统计面板` command | The panel's button, plus a refresh control |
+| TUI | A DeepSeek block appended to the session sidebar: state, then 今日 / 本月 / 累计 rows (`Search` · `Fetch` · `¥` estimate); it degrades to abbreviations and then to fewer columns as the sidebar narrows | Click the action at the right of the title, or run the `/deepseek` slash command for a menu |
+| Desktop | A **DeepSeek** tab in a session's side region, listed in the side region's *New tab* page and its `+` menu, and openable with the `DeepSeek: 打开统计面板` command | The panel's button, plus a refresh control |
 
 - Both surfaces read the same ledger and the same stored switch as `deepseek_usage` / `deepseek_mode`: a single
   server-side source, reached over the plugin's own RPC, so the numbers never diverge between TUI and desktop.
@@ -210,16 +218,21 @@ contain text that tries to steer the model.
 | `429` rate limited | Backed off once already; retry later |
 | `403` / `404` on fetch | The site blocks extraction or the page has no readable text; try the built-in `webfetch` |
 | Search still hits the native backend | `mode` or the persisted switch is `native`; if both are `deepseek`, the built-in `websearch` tool was not found — use config `"websearch": { "provider": "deepseek" }` |
+| TUI sidebar has no DeepSeek card | The TUI half is enabled in `cli.json` (`"plugins": [...]`), not in `opencode.jsonc`; add the path/package there and restart the TUI |
+| Desktop has no DeepSeek entry in the *New tab* list | The desktop reads plugins from the **global** `opencode.jsonc`, and its bundle must exist — run `npm run build:gui` when working from a clone, then reload the window |
+| Sidebar says `读取失败` | The half cannot reach the RPC: check `opencode plugin list` reports `deepseek-search` as active, then look for `/api/rpc/deepseek-search/status` in `~/.local/share/opencode/log/opencode.log`. A `400 rpc.invalid_input` means a half and the server disagree on the contract — reload that client |
 
 ## Local development
 
 ```powershell
 cd D:\repos\opencode-deepseek-search
 npm install
-npm run typecheck     # tsc --noEmit
+npm run typecheck     # tsc --noEmit, both the server/TUI config and the GUI config
 npm test              # node --test, pure functions, zero cost
+npm run build:gui     # src/gui -> gui-experimental.cjs (the desktop half's bundle)
+node --experimental-strip-types scripts/check-gui-bundle.ts   # bundle shape check, run in CI
 npm run smoke         # real API smoke; skipped without DEEPSEEK_API_KEY
-npm pack --dry-run    # audit the publish artifacts
+npm pack --dry-run    # audit the publish artifacts — run build:gui first, `pack` does not build the bundle
 ```
 
 One-command switch (repo-only helper; edits `options.mode` in `opencode.jsonc`, backing it up to `opencode.jsonc.bak-switch`):
