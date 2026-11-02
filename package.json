@@ -24,7 +24,8 @@
                      "cost",
                      "tui",
                      "desktop",
-                     "sidebar"
+                     "sidebar",
+                     "i18n"
                  ],
     "files":  [
                   "index.ts",

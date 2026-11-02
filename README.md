@@ -60,6 +60,8 @@ With options (recommended — this is where `mode` and friends live):
       "package": "@qthinker/opencode-deepseek-search",
       "options": {
         "mode": "deepseek",
+        // "en" | "ja" | "zh-CN"; omit it to follow LC_ALL/LANG, then English
+        "language": "en",
         "count": 5,
         "apiKey": "{env:DEEPSEEK_API_KEY}"
       }
@@ -275,7 +277,7 @@ Layout:
 index.ts              # directory-plugin entry, re-exports src/index.ts
 tui.ts                # TUI entry, re-exports src/tui/main.ts
 src/index.ts          # plugin: options, registration, websearch patch, three tools
-src/deepseek.ts       # HTTP core: timeout/cancel, single backoff retry, Chinese errors, mapping
+src/deepseek.ts       # HTTP core: timeout/cancel, single backoff retry, localized errors, mapping
 src/usage.ts          # pure ledger: micro-CNY pricing, 60-day prune, defensive parse, formatting
 src/rpc.ts            # RPC contract shared by the server, TUI and desktop halves
 src/status-view.ts    # pure view model both sidebars derive their copy from

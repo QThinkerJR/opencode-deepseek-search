@@ -10,6 +10,9 @@
 > 已在 `opencode 2.2.5` + `@opencode/plugin@2.2.5`（Windows）实测。Search/Fetch 的接口事实来自
 > <https://api-docs.deepseek.com/zh-cn/guides/search>。
 
+English: [README.md](https://github.com/QThinkerJR/opencode-deepseek-search/blob/main/README.md)。界面语言支持
+`en` / `ja` / `zh-CN`（默认英文，可用 `options.language` 指定），文档只提供英文与中文两版。
+
 ## 前置条件
 
 - `opencode >= 2.2.5`（V2 插件 API）
@@ -251,7 +254,7 @@ function dsmode { & "D:\repos\opencode-deepseek-search\tools\switch-mode.ps1" @a
 index.ts              # 目录型插件入口，re-export src/index.ts
 tui.ts                # TUI 入口，re-export src/tui/main.ts
 src/index.ts          # 插件本体：选项、注册、接管 websearch、三个工具
-src/deepseek.ts       # HTTP 核心：超时/取消、单次退避重试、中文错误、结果映射
+src/deepseek.ts       # HTTP 核心：超时/取消、单次退避重试、本地化错误、结果映射
 src/usage.ts          # 纯账本：微元计价、60 天裁剪、防御性解析、格式化
 src/rpc.ts            # 服务端 / TUI / 桌面三端共享的 RPC 契约
 src/status-view.ts    # 纯视图模型：两个侧边栏的文案都从这里派生
