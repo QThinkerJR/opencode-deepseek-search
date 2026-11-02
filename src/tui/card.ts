@@ -102,9 +102,18 @@ export function sidebarCard(input: {
   // is still pushed to the far edge. The title is measured by the view model and
   // never wraps; the action keeps its own width and owns the only click handler,
   // so a click can never toggle twice.
-  const titleSpans: Child[] = [
-    element("span", { style: { fg: theme.text.base } }, [rows.title]),
-  ]
+  //
+  // The state word carries the tone color, so a narrow sidebar that has to drop
+  // the glyph still shows the state at a glance (the desktop panel does the same).
+  const separator = rows.title.indexOf(" · ")
+  const titleSpans: Child[] =
+    separator < 0
+      ? [element("span", { style: { fg: state } }, [rows.title])]
+      : [
+          element("span", { style: { fg: theme.text.base } }, [rows.title.slice(0, separator)]),
+          element("span", { style: { fg: theme.text.faint } }, [" · "]),
+          element("span", { style: { fg: state } }, [rows.title.slice(separator + 3)]),
+        ]
   if (rows.glyph) {
     titleSpans.unshift(element("span", { style: { fg: state } }, [`${GLYPH[rows.tone]} `]))
   }
