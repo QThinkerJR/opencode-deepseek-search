@@ -5,7 +5,14 @@
 // numbers and the switch match the TUI sidebar. The host loads it from the
 // prebuilt CommonJS bundle `gui-experimental.cjs` (see vite.config.ts).
 
-import { Command, Panel, Plugin, type PanelTab } from "@opencode/plugin/gui"
+import {
+  Command,
+  MenuItem,
+  Panel,
+  Plugin,
+  type PanelTab,
+  type SessionPanelMenuItem,
+} from "@opencode/plugin/gui"
 import { createSignal } from "solid-js"
 import { DeepSeekRpc, readModeResult, readStatus, type SearchStatus } from "../rpc.ts"
 import { DeepSeekPanel } from "./panel.tsx"
@@ -84,17 +91,40 @@ export default Plugin.define({
       ),
     })
 
+    // One entry point, used by both the palette command and the side panel's
+    // launcher item.
+    const openPanel = () => {
+      const session = ctx.sessions.current()
+      if (!session) {
+        ctx.toast.show({ title: "DeepSeek", description: "请先打开一个会话" })
+        return
+      }
+      ctx.layout.open(`${ctx.id}:main`, session)
+    }
+
     ctx.add(Command, {
       id: "open",
       title: "DeepSeek: 打开统计面板",
-      run: () => {
-        const session = ctx.sessions.current()
-        if (!session) {
-          ctx.toast.show({ title: "DeepSeek", description: "请先打开一个会话" })
-          return
-        }
-        ctx.layout.open(`${ctx.id}:main`, session)
-      },
+      section: "session",
+      run: openPanel,
+    })
+
+    // The new-tab launcher and the + menu list `session.panel` items, not panel
+    // tabs, so without this the panel is reachable only by typing the command.
+    // The item hides itself while its tab is already open.
+    ctx.add(MenuItem, (): SessionPanelMenuItem => {
+      const session = ctx.sessions.current()
+      const opened = session !== undefined && ctx.layout.stored(session).includes("main")
+      return {
+        menu: "session.panel",
+        id: "open",
+        title: "DeepSeek",
+        description: "搜索用量与接管开关",
+        icon: "globe",
+        order: 60,
+        opened,
+        run: openPanel,
+      }
     })
 
     // The `changed` event is the primary refresh path; a panel that mounts
