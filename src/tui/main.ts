@@ -24,11 +24,12 @@ export default Plugin.define({
 
     const describeError = (e: unknown) => (e instanceof Error ? e.message : String(e)).slice(0, ERROR_MAX)
 
-    // `status` has a required first argument: plain JSON Schema degrades the
-    // input type to `unknown`, so it must be passed explicitly.
+    // `status` takes a required first argument: plain JSON Schema degrades the
+    // input type to `unknown`, and the host validates the payload against the
+    // method's object schema, so an omitted input is rejected as invalid.
     async function refresh() {
       try {
-        const next = readStatus(await rpc.status(undefined))
+        const next = readStatus(await rpc.status({}))
         if (next) {
           setStatus(next)
           setError(undefined)
