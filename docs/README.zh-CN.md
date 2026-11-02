@@ -3,7 +3,7 @@
 把 DeepSeek Search / Fetch 接进 OpenCode V2：**内置 `websearch` 工具直接走 DeepSeek**，另带干净的 Markdown
 抓取、本地用量/费用统计、一个**持久化**的后端开关，以及**TUI 与桌面侧边栏**——直接显示状态与数字，一点就切换接管。
 
-切回原生：侧边栏开关、改配置 `mode`、让模型调 `deepseek_mode`、或跑仓库里的 `tools/switch-mode.ps1`。
+切回原生：侧边栏开关、改配置 `mode`，或让模型调 `deepseek_mode`。
 
 与已占用的同名 V1 包的区别：本项目面向 **V2 插件 API**、支持**运行时切换后端**、自带**本地用量与费用估算**。
 
@@ -115,7 +115,6 @@ opencode service restart   # User 变量只进新进程
 | 侧边栏 | 点 TUI 卡片上的动作（中文界面 `[停用]` / `[启用]`，默认英文界面 `[Disable]` / `[Enable]`），或桌面面板的按钮 | 是（插件存储 `mode/v1`） | 正在干活时随手切 |
 | 配置 | 改 `options.mode`，保存即生效 | 是（在配置文件里） | 长期默认值 |
 | 工具 | 让模型调 `deepseek_mode`，或自己调 | 是（插件存储 `mode/v1`） | 临时/在会话里切，不用改文件 |
-| 脚本 | `.\tools\switch-mode.ps1 native` | 是（脚本改配置文件） | 命令行快速切，不用开编辑器 |
 
 `deepseek_mode` 的四个动作：
 
@@ -228,26 +227,6 @@ npm run smoke         # 真实调用冒烟，无 DEEPSEEK_API_KEY 自动 skip
 npm pack --dry-run    # 发布前产物审计——先跑 build:gui，`pack` 本身不会构建 bundle
 ```
 
-一键切换（仓库内脚本，改的是 `opencode.jsonc` 的 `options.mode`，写前备份 `opencode.jsonc.bak-switch`）：
-
-```powershell
-.\tools\switch-mode.ps1 status
-.\tools\switch-mode.ps1 native
-.\tools\switch-mode.ps1 deepseek
-```
-
-被 ExecutionPolicy 拦住时：
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\switch-mode.ps1 native
-```
-
-加个别名更省事（`$PROFILE`）：
-
-```powershell
-function dsmode { & "D:\repos\opencode-deepseek-search\tools\switch-mode.ps1" @args }
-```
-
 目录结构：
 
 ```
@@ -264,7 +243,6 @@ vite.config.ts        # 把 src/gui 构建成根目录的 gui-experimental.cjs
 test/*.test.ts        # 纯函数单测
 scripts/smoke.ts      # 真实 API 冒烟（5 步）
 scripts/check-gui-bundle.ts # bundle 形态检查，CI 里在 build:gui 之后跑
-tools/switch-mode.ps1 # 命令行切换后端
 .github/workflows/    # ci（构建 + typecheck + test + bundle 检查）/ release
 ```
 

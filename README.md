@@ -9,8 +9,7 @@ DeepSeek Search & Fetch as an OpenCode V2 plugin: **the built-in `websearch` too
 Markdown fetch tool, local usage/cost stats, a **persisted** backend switch, and **TUI + desktop sidebars** that show
 the state and the numbers and flip the takeover with one click.
 
-Ways back to native search: the sidebar switch, the `mode` option, a `deepseek_mode` call, or
-`tools/switch-mode.ps1` from the repo.
+Ways back to native search: the sidebar switch, the `mode` option, or a `deepseek_mode` call.
 中文说明见 [docs/README.zh-CN.md](https://github.com/QThinkerJR/opencode-deepseek-search/blob/main/docs/README.zh-CN.md)。
 
 Differs from the existing same-named V1 package: this one targets the **V2 plugin API**, switches backends **at
@@ -129,7 +128,6 @@ and `need_content` is never requested.
 | Sidebar | Click the action on the TUI card (English UI: `[Disable]` / `[Enable]`; Chinese UI: `[停用]` / `[启用]`), or the panel's button | Yes (plugin storage `mode/v1`) | While you are working |
 | Config | Edit `options.mode`; applies on save | Yes (in the config file) | The long-term default |
 | Tool | Ask the model to call `deepseek_mode`, or call it yourself | Yes (plugin storage `mode/v1`) | Switching mid-session without touching files |
-| Script | `.\tools\switch-mode.ps1 native` | Yes (the script edits the config) | Quick switch from a terminal, no editor |
 
 `deepseek_mode` actions:
 
@@ -251,26 +249,6 @@ npm run smoke         # real API smoke; skipped without DEEPSEEK_API_KEY
 npm pack --dry-run    # audit the publish artifacts — run build:gui first, `pack` does not build the bundle
 ```
 
-One-command switch (repo-only helper; edits `options.mode` in `opencode.jsonc`, backing it up to `opencode.jsonc.bak-switch`):
-
-```powershell
-.\tools\switch-mode.ps1 status
-.\tools\switch-mode.ps1 native
-.\tools\switch-mode.ps1 deepseek
-```
-
-If ExecutionPolicy blocks it:
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\switch-mode.ps1 native
-```
-
-Shorter, via an alias in `$PROFILE`:
-
-```powershell
-function dsmode { & "D:\repos\opencode-deepseek-search\tools\switch-mode.ps1" @args }
-```
-
 Layout:
 
 ```
@@ -287,7 +265,6 @@ vite.config.ts        # builds src/gui into the root gui-experimental.cjs bundle
 test/*.test.ts        # pure-function tests
 scripts/smoke.ts      # real-API smoke (5 steps)
 scripts/check-gui-bundle.ts # bundle shape check, run in CI after build:gui
-tools/switch-mode.ps1 # terminal backend switch
 .github/workflows/    # ci (build + typecheck + test + bundle check) / release
 ```
 

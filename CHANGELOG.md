@@ -3,6 +3,15 @@
 All notable changes to this package. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the version numbers follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Removed
+
+- `tools/switch-mode.ps1`, the terminal helper that rewrote `options.mode` in `opencode.jsonc`. The switch has lived in
+  plugin storage (`mode/v1`) since the first release and `deepseek_mode` covers the terminal case, so the script only
+  duplicated it — and on Windows PowerShell 5.1 its `Set-Content -Encoding UTF8` wrote a BOM, after which
+  `opencode plugin add/update/remove` rejected the whole config as invalid.
+
 ## [0.3.0] - 2026-11-02
 
 ### Added
