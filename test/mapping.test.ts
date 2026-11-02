@@ -59,13 +59,13 @@ test("buildSearchBody never asks for full page content", () => {
 })
 
 test("mapFetchResponse assembles markdown and marks truncation", () => {
-  const short = mapFetchResponse({ title: "Example", content: "hello" }, "https://example.com", 100)
+  const short = mapFetchResponse({ title: "Example", content: "hello" }, "https://example.com", 100, "zh-CN")
   assert.equal(short.markdown, "# Example\n来源: https://example.com\n\nhello")
   assert.equal(short.truncated, false)
   assert.equal(short.empty, false)
   assert.equal(short.chars, 5)
 
-  const long = mapFetchResponse({ title: "", content: "x".repeat(50) }, "https://example.com", 10)
+  const long = mapFetchResponse({ title: "", content: "x".repeat(50) }, "https://example.com", 10, "zh-CN")
   assert.equal(long.truncated, true)
   assert.equal(long.chars, 50)
   assert.match(long.markdown, /^# https:\/\/example\.com/)
@@ -73,28 +73,28 @@ test("mapFetchResponse assembles markdown and marks truncation", () => {
 })
 
 test("mapFetchResponse treats an empty body as empty", () => {
-  const empty = mapFetchResponse({}, "https://example.com", 100)
+  const empty = mapFetchResponse({}, "https://example.com", 100, "zh-CN")
   assert.equal(empty.empty, true)
   assert.equal(empty.truncated, false)
 })
 
 test("validateUrl accepts normal http(s) urls", () => {
-  assert.equal(validateUrl("https://example.com/a?b=1"), undefined)
-  assert.equal(validateUrl("http://localhost:3000"), undefined)
+  assert.equal(validateUrl("https://example.com/a?b=1", "zh-CN"), undefined)
+  assert.equal(validateUrl("http://localhost:3000", "zh-CN"), undefined)
 })
 
 test("validateUrl rejects non-http, userinfo, oversized and unparsable input", () => {
-  assert.match(validateUrl("ftp://example.com") ?? "", /仅支持 http\/https/)
-  assert.match(validateUrl("example.com") ?? "", /仅支持 http\/https/)
-  assert.match(validateUrl("https://user:pass@example.com") ?? "", /userinfo/)
-  assert.match(validateUrl(`https://example.com/${"a".repeat(MAX_URL_CHARS)}`) ?? "", /URL 过长/)
-  assert.match(validateUrl("https://") ?? "", /无法解析 URL/)
+  assert.match(validateUrl("ftp://example.com", "zh-CN") ?? "", /仅支持 http\/https/)
+  assert.match(validateUrl("example.com", "zh-CN") ?? "", /仅支持 http\/https/)
+  assert.match(validateUrl("https://user:pass@example.com", "zh-CN") ?? "", /userinfo/)
+  assert.match(validateUrl(`https://example.com/${"a".repeat(MAX_URL_CHARS)}`, "zh-CN") ?? "", /URL 过长/)
+  assert.match(validateUrl("https://", "zh-CN") ?? "", /无法解析 URL/)
 })
 
 test("validateQuery enforces 1..128 characters", () => {
-  assert.equal(validateQuery("open source"), undefined)
-  assert.match(validateQuery("") ?? "", /搜索词为空/)
-  assert.match(validateQuery("a".repeat(MAX_QUERY_CHARS + 1)) ?? "", /搜索词过长/)
+  assert.equal(validateQuery("open source", "zh-CN"), undefined)
+  assert.match(validateQuery("", "zh-CN") ?? "", /搜索词为空/)
+  assert.match(validateQuery("a".repeat(MAX_QUERY_CHARS + 1), "zh-CN") ?? "", /搜索词过长/)
 })
 
 test("formatSearchResults matches the built-in tool rendering", () => {
@@ -110,17 +110,45 @@ test("formatSearchResults matches the built-in tool rendering", () => {
 })
 
 test("httpError maps billing-sensitive statuses to actionable Chinese messages", () => {
-  assert.match(httpError(401, "", false).message, /API Key 无效/)
-  assert.match(httpError(402, "", false).message, /余额不足/)
-  assert.match(httpError(403, "", true).message, /webfetch/)
-  assert.match(httpError(404, "", true).message, /无法提取/)
-  assert.match(httpError(429, "", false).message, /限速/)
-  assert.match(httpError(500, "", false).message, /服务端错误/)
+  assert.match(httpError(401, "", false, "zh-CN").message, /API Key 无效/)
+  assert.match(httpError(402, "", false, "zh-CN").message, /余额不足/)
+  assert.match(httpError(403, "", true, "zh-CN").message, /webfetch/)
+  assert.match(httpError(404, "", true, "zh-CN").message, /无法提取/)
+  assert.match(httpError(429, "", false, "zh-CN").message, /限速/)
+  assert.match(httpError(500, "", false, "zh-CN").message, /服务端错误/)
 })
 
 test("httpError surfaces the upstream message when the body carries one", () => {
   const body = JSON.stringify({ error: { message: "'count' must be between 1 and 50" } })
-  assert.match(httpError(400, body, false).message, /'count' must be between 1 and 50/)
+  assert.match(httpError(400, body, false, "zh-CN").message, /'count' must be between 1 and 50/)
   // A non-JSON body must not break error construction.
-  assert.match(httpError(400, "<html>oops</html>", false).message, /请求参数无效/)
+  assert.match(httpError(400, "<html>oops</html>", false, "zh-CN").message, /请求参数无效/)
+})
+
+test("httpError localizes the copy and the upstream separator", () => {
+  assert.match(httpError(401, "", false, "en").message, /DEEPSEEK_API_KEY/)
+  assert.match(httpError(401, "", false, "en").message, /Invalid DeepSeek API key \(401\)/)
+  assert.match(httpError(402, "", false, "ja").message, /残高が不足/)
+  assert.match(httpError(403, "", true, "en").message, /webfetch/)
+  // English keeps ": ", Chinese and Japanese keep the full-width colon.
+  const body = JSON.stringify({ error: { message: "boom" } })
+  assert.match(httpError(400, body, false, "en").message, /\(400\): boom/)
+  assert.match(httpError(400, body, false, "zh-CN").message, /（400）：boom/)
+  assert.match(httpError(400, body, false, "ja").message, /（400）：boom/)
+})
+
+test("validators render in English and Japanese", () => {
+  assert.match(validateQuery("", "en") ?? "", /Empty query/)
+  assert.match(validateUrl("ftp://example.com", "en") ?? "", /only supports absolute http\/https/)
+  const ja = validateQuery("", "ja") ?? ""
+  assert.ok(ja.length > 0)
+  assert.notEqual(ja, validateQuery("", "zh-CN"))
+  assert.match(validateUrl("https://user:pass@example.com", "ja") ?? "", /userinfo/)
+})
+
+test("mapFetchResponse localizes the truncation notice", () => {
+  const en = mapFetchResponse({ content: "x".repeat(50) }, "https://example.com", 10, "en")
+  assert.match(en.markdown, /\[DeepSeek Fetch truncated\]/)
+  const ja = mapFetchResponse({ content: "x".repeat(50) }, "https://example.com", 10, "ja")
+  assert.match(ja.markdown, /\[DeepSeek Fetch 切り詰め\]/)
 })

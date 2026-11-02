@@ -13,6 +13,17 @@ import type { Rpc } from "@opencode/plugin/rpc"
 
 export const DEEPSEEK_RPC_ID = "deepseek-search"
 
+/**
+ * UI languages the plugin ships. The server resolves one of them once and puts
+ * it in `status`, so the tools and both sidebars always speak the same language.
+ */
+export type Language = "en" | "ja" | "zh-CN"
+export const LANGUAGE_VALUES = ["en", "ja", "zh-CN"] as const
+
+export function isLanguage(value: unknown): value is Language {
+  return value === "en" || value === "ja" || value === "zh-CN"
+}
+
 // Shared by the today/month/total slots of `status.counts`.
 const USAGE_COUNTS_SCHEMA = {
   type: "object",
@@ -43,6 +54,9 @@ export const DeepSeekRpc = {
           today: { type: "string" },
           month: { type: "string" },
           total: { type: "string" },
+          // Declared but not required: older servers omit it, and readStatus
+          // falls back to English without failing the rest of the payload.
+          language: { type: "string", enum: ["en", "ja", "zh-CN"] },
           counts: {
             type: "object",
             properties: {
@@ -102,6 +116,12 @@ export interface SearchStatus {
   today: string
   month: string
   total: string
+  /**
+   * UI language resolved by the server. Required by this interface: `readStatus`
+   * always fills it (English when the server is older or sends garbage), so
+   * every surface has one value to render with.
+   */
+  language: Language
   /** Structured counters, so each surface can format for its own width. Optional for older servers. */
   counts?: { today: UsageCounts; month: UsageCounts; total: UsageCounts }
 }
@@ -134,13 +154,25 @@ function readUsageCounts(value: unknown): UsageCounts | undefined {
 /** Defensive read of an RPC `status` result. Never throws. */
 export function readStatus(raw: unknown): SearchStatus | undefined {
   if (!isRecord(raw)) return undefined
-  const { mode, source, patched, hasKey, pricePerThousand, today, month, total, counts } = raw
+  const { mode, source, patched, hasKey, pricePerThousand, today, month, total, language, counts } = raw
   if (!isMode(mode)) return undefined
   if (source !== "override" && source !== "config") return undefined
   if (typeof patched !== "boolean" || typeof hasKey !== "boolean") return undefined
   if (typeof pricePerThousand !== "number" || !Number.isFinite(pricePerThousand)) return undefined
   if (typeof today !== "string" || typeof month !== "string" || typeof total !== "string") return undefined
-  const status: SearchStatus = { mode, source, patched, hasKey, pricePerThousand, today, month, total }
+  const status: SearchStatus = {
+    mode,
+    source,
+    patched,
+    hasKey,
+    pricePerThousand,
+    today,
+    month,
+    total,
+    // An older server has no language; a malformed one is not worth failing the
+    // whole payload over. Both fall back to English.
+    language: isLanguage(language) ? language : "en",
+  }
   // Old servers omit `counts`; a malformed triple is dropped without failing the rest.
   if (isRecord(counts)) {
     const todayCounts = readUsageCounts(counts.today)

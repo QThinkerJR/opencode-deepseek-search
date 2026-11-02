@@ -1,8 +1,12 @@
 // DeepSeek Search / Fetch HTTP core.
 //
 // Responsibilities: request shaping, retry policy, response mapping and
-// user-facing (Chinese) error messages. No plugin context and no storage here,
-// so every mapper below is unit-testable without network access.
+// user-facing error messages (rendered through the i18n tables). No plugin
+// context and no storage here, so every mapper below is unit-testable without
+// network access.
+
+import { t } from "./i18n/index.ts"
+import type { Language } from "./rpc.ts"
 
 export const API_BASE = "https://api.deepseek.com"
 export const SEARCH_PATH = "/v1/tools/search"
@@ -32,12 +36,8 @@ export interface FetchResult {
   truncated: boolean
 }
 
-export function missingKeyMessage(): string {
-  return (
-    "未配置 DeepSeek API Key：请设置环境变量 DEEPSEEK_API_KEY" +
-    '（PowerShell: [Environment]::SetEnvironmentVariable("DEEPSEEK_API_KEY","sk-...","User")），' +
-    '或在插件 options 中写 "apiKey": "{env:DEEPSEEK_API_KEY}"，然后重启 opencode。'
-  )
+export function missingKeyMessage(language: Language): string {
+  return t(language, "error.missingKey")
 }
 
 // ---------- abort plumbing: combine the caller signal with a timeout ----------
@@ -80,42 +80,43 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
 
 // ---------- error mapping ----------
 
-function upstreamMessage(body: string): string {
+function upstreamMessage(body: string, language: Language): string {
   try {
     const parsed = JSON.parse(body) as { error?: { message?: unknown } }
     const message = parsed?.error?.message
-    return typeof message === "string" && message.trim() ? `：${message.trim()}` : ""
+    if (typeof message !== "string" || !message.trim()) return ""
+    // The provider text is kept verbatim; only the separator is localized.
+    const separator = language === "en" ? ": " : "："
+    return `${separator}${message.trim()}`
   } catch {
     return ""
   }
 }
 
-export function httpError(status: number, body: string, isFetch: boolean): Error {
-  const upstream = upstreamMessage(body)
-  const fetchHint = isFetch ? " 可改用内置 webfetch 工具抓取该页面。" : ""
+export function httpError(status: number, body: string, isFetch: boolean, language: Language): Error {
+  const upstream = upstreamMessage(body, language)
+  const hint = isFetch ? t(language, "error.http.fetchHint") : ""
+  const params = { upstream, hint, status }
   switch (status) {
     case 400:
-      return new Error(`DeepSeek 请求参数无效（400）${upstream}。搜索词需 1~128 字符；Fetch 的 URL 需为合法的 http(s) 绝对地址。`)
+      return new Error(t(language, "error.http.400", params))
     case 401:
-      return new Error(`DeepSeek API Key 无效（401）${upstream}。请检查 DEEPSEEK_API_KEY 环境变量或 options.apiKey。`)
+      return new Error(t(language, "error.http.401", params))
     case 402:
-      return new Error("DeepSeek 账户余额不足（402），失败请求不计费。请充值后重试。")
+      return new Error(t(language, "error.http.402", params))
     case 403:
-      return new Error(`DeepSeek Fetch 被目标站点安全策略拒绝（403）${upstream}。${fetchHint}`)
+      return new Error(t(language, "error.http.403", params))
     case 404:
-      return new Error(`DeepSeek 无法提取该链接的正文（404）${upstream}。请确认链接可访问。${fetchHint}`)
+      return new Error(t(language, "error.http.404", params))
     case 408:
-      return new Error("DeepSeek 请求超时（408），已退避重试一次仍失败。请稍后重试。")
+      return new Error(t(language, "error.http.408", params))
     case 413:
-      return new Error("DeepSeek 请求体过大（413）。请缩短输入。")
+      return new Error(t(language, "error.http.413", params))
     case 429:
-      return new Error("DeepSeek 触发限速（429，账号级 Search 100 QPS / Fetch 25 QPS），已退避重试一次仍失败。请稍后再试。")
+      return new Error(t(language, "error.http.429", params))
     default:
-      if (status >= 500)
-        return new Error(
-          `DeepSeek 服务端错误（${status}），已退避重试一次仍失败。可把插件 options.mode 改为 "native" 暂用原生搜索。`,
-        )
-      return new Error(`DeepSeek 请求失败（HTTP ${status}）${upstream}`)
+      if (status >= 500) return new Error(t(language, "error.http.5xx", params))
+      return new Error(t(language, "error.http.other", params))
   }
 }
 
@@ -132,9 +133,10 @@ export async function postJson(
   body: unknown,
   apiKey: string,
   timeoutMs: number,
+  language: Language,
   signal?: AbortSignal,
 ): Promise<unknown> {
-  if (!apiKey) throw new Error(missingKeyMessage())
+  if (!apiKey) throw new Error(missingKeyMessage(language))
   for (let attempt = 1; ; attempt++) {
     const merged = mergeAbort(signal, timeoutMs)
     try {
@@ -149,7 +151,7 @@ export async function postJson(
         try {
           return JSON.parse(text) as unknown
         } catch {
-          throw new Error(`DeepSeek 返回了无法解析的响应（HTTP ${res.status}）。请稍后重试。`)
+          throw new Error(t(language, "error.parse", { status: res.status }))
         }
       }
       const text = await res.text().catch(() => "")
@@ -157,18 +159,18 @@ export async function postJson(
         await sleep(retryAfterMs(res.headers), signal)
         continue
       }
-      throw httpError(res.status, text, path === FETCH_PATH)
+      throw httpError(res.status, text, path === FETCH_PATH, language)
     } catch (e) {
       if (e instanceof Error && e.name === "AbortError") {
         throw new Error(
           signal?.aborted
-            ? "DeepSeek 请求已取消。"
-            : `DeepSeek 请求超时（${Math.round(timeoutMs / 1000)} 秒），请重试。`,
+            ? t(language, "error.aborted")
+            : t(language, "error.timeout", { seconds: Math.round(timeoutMs / 1000) }),
         )
       }
       // fetch() rejects with TypeError on DNS/TLS/proxy failures.
       if (e instanceof TypeError) {
-        throw new Error(`无法连接 ${API_BASE}（网络错误：${e.message}）。请检查网络或代理设置。`)
+        throw new Error(t(language, "error.network", { base: API_BASE, message: e.message }))
       }
       throw e
     } finally {
@@ -222,39 +224,53 @@ export async function deepseekSearch(
   query: string,
   apiKey: string,
   count: number,
+  language: Language,
   signal?: AbortSignal,
 ): Promise<SearchResult[]> {
-  const data = await postJson(SEARCH_PATH, buildSearchBody(query, count), apiKey, SEARCH_TIMEOUT_MS, signal)
+  const data = await postJson(
+    SEARCH_PATH,
+    buildSearchBody(query, count),
+    apiKey,
+    SEARCH_TIMEOUT_MS,
+    language,
+    signal,
+  )
   return mapSearchResults(data)
 }
 
 // ---------- DeepSeek Fetch -> Markdown with truncation ----------
 
-export function mapFetchResponse(data: unknown, url: string, maxChars: number): FetchResult {
+export function mapFetchResponse(
+  data: unknown,
+  url: string,
+  maxChars: number,
+  language: Language,
+): FetchResult {
   const title = typeof (data as { title?: unknown })?.title === "string" ? (data as { title: string }).title : ""
   const raw = typeof (data as { content?: unknown })?.content === "string" ? (data as { content: string }).content : ""
   const truncated = raw.length > maxChars
   let body = truncated ? raw.slice(0, maxChars) : raw
   if (truncated) {
-    body += `\n\n[DeepSeek Fetch 截断提示] 原文共 ${raw.length} 字符，超出上限 ${maxChars}，此处仅保留前 ${maxChars} 字符。`
+    body += `\n\n${t(language, "error.fetch.truncated", { raw: raw.length, max: maxChars })}`
   }
   return {
-    markdown: `# ${title || url}\n来源: ${url}\n\n${body}`,
+    markdown: `# ${title || url}\n${t(language, "fetch.source", { url })}\n\n${body}`,
     chars: raw.length,
     empty: raw.length === 0,
     truncated,
   }
 }
 
-export function validateUrl(url: string): string | undefined {
-  if (!/^https?:\/\//i.test(url)) return `无效 URL：「${url}」。DeepSeek Fetch 仅支持 http/https 绝对地址。`
-  if (url.length > MAX_URL_CHARS) return `URL 过长（${url.length} > ${MAX_URL_CHARS} 字符）。`
+export function validateUrl(url: string, language: Language): string | undefined {
+  if (!/^https?:\/\//i.test(url)) return t(language, "error.validate.urlScheme", { url })
+  if (url.length > MAX_URL_CHARS)
+    return t(language, "error.validate.urlLong", { length: url.length, max: MAX_URL_CHARS })
   try {
     const parsed = new URL(url)
-    if (!parsed.host) return `URL 缺少主机名：「${url}」。`
-    if (parsed.username || parsed.password) return "URL 不能包含用户名/密码（userinfo）。"
+    if (!parsed.host) return t(language, "error.validate.urlHost", { url })
+    if (parsed.username || parsed.password) return t(language, "error.validate.urlUserinfo")
   } catch {
-    return `无法解析 URL：「${url}」。`
+    return t(language, "error.validate.urlParse", { url })
   }
   return undefined
 }
@@ -263,15 +279,17 @@ export async function deepseekFetch(
   url: string,
   apiKey: string,
   maxChars: number,
+  language: Language,
   signal?: AbortSignal,
 ): Promise<FetchResult> {
-  const data = await postJson(FETCH_PATH, { url }, apiKey, FETCH_TIMEOUT_MS, signal)
-  return mapFetchResponse(data, url, maxChars)
+  const data = await postJson(FETCH_PATH, { url }, apiKey, FETCH_TIMEOUT_MS, language, signal)
+  return mapFetchResponse(data, url, maxChars, language)
 }
 
-export function validateQuery(query: string): string | undefined {
-  if (query.length === 0) return "搜索词为空：DeepSeek Search 需要非空 query（1~128 字符）。"
-  if (query.length > MAX_QUERY_CHARS) return `搜索词过长（${query.length} 字符，上限 ${MAX_QUERY_CHARS}），请精简后重试。`
+export function validateQuery(query: string, language: Language): string | undefined {
+  if (query.length === 0) return t(language, "error.validate.queryEmpty")
+  if (query.length > MAX_QUERY_CHARS)
+    return t(language, "error.validate.queryLong", { length: query.length, max: MAX_QUERY_CHARS })
   return undefined
 }
 

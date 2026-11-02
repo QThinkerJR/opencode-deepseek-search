@@ -11,6 +11,7 @@ const STATUS = {
   today: "搜索 0 · 抓取 1 · 空/失 0 · ¥0.0050",
   month: "搜索 1 · 抓取 2 · 空/失 2 · ¥0.0150",
   total: "搜索 3 · 抓取 2 · 空/失 2 · ¥0.0250",
+  language: "zh-CN",
 }
 
 const COUNTS = { search: 3, fetch: 2, empty: 1, failed: 1, costMicro: 25_000 }
@@ -57,6 +58,24 @@ test("readStatus returns a clean copy of a valid payload", () => {
   assert.deepEqual(readStatus({ ...STATUS, extra: true }), STATUS)
 })
 
+test("readStatus falls back to English when language is missing or invalid", () => {
+  const { language: _ignored, ...withoutLanguage } = STATUS
+  assert.deepEqual(readStatus(withoutLanguage), { ...withoutLanguage, language: "en" })
+  for (const language of ["ja-JP", "zh", 42, null] as unknown[]) {
+    assert.deepEqual(
+      readStatus({ ...STATUS, language }),
+      { ...STATUS, language: "en" },
+      `language ${String(language)} falls back without losing the payload`,
+    )
+  }
+})
+
+test("readStatus passes every valid language through", () => {
+  for (const language of ["en", "ja", "zh-CN"] as const) {
+    assert.equal(readStatus({ ...STATUS, language })?.language, language)
+  }
+})
+
 test("status output schema carries optional structured counts", () => {
   const schema = DeepSeekRpc.methods.status.output
   const counts = (schema.properties as Record<string, any>).counts
@@ -70,6 +89,16 @@ test("status output schema carries optional structured counts", () => {
     assert.equal(bucket.additionalProperties, false)
     for (const field of bucket.required) assert.equal(bucket.properties[field].type, "integer")
   }
+})
+
+test("status output schema carries language as an optional field", () => {
+  const schema = DeepSeekRpc.methods.status.output
+  const language = (schema.properties as Record<string, any>).language
+  assert.equal(language.type, "string")
+  assert.deepEqual(language.enum, ["en", "ja", "zh-CN"])
+  // Optional on the wire, like `counts`: a strict `required` would fail every
+  // older client whose own schema predates the field.
+  assert.equal((schema.required as readonly string[]).includes("language"), false)
 })
 
 test("readStatus accepts a payload without counts", () => {

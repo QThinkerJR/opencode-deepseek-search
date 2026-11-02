@@ -24,6 +24,7 @@ import {
   validateUrl,
   type SearchResult,
 } from "./deepseek.ts"
+import { resolveLanguage, t } from "./i18n/index.ts"
 import { DeepSeekRpc, type ModeSwitchResult, type SearchStatus } from "./rpc.ts"
 import {
   USAGE_KEY,
@@ -56,11 +57,13 @@ const SEARCH_TOOL_DESCRIPTION =
   "Search the web using DeepSeek Search. Use this for current information beyond knowledge cutoff." +
   `\n\nThe current year is ${new Date().getFullYear()}. Use this year when searching for recent information or current events.`
 
-function readModeAction(input: unknown): ModeAction {
+// Pure parser: the caller decides how to surface an invalid value (tool error
+// vs. RPC result), so the message can be localized at that call site.
+function readModeAction(input: unknown): { action: ModeAction } | { invalid: string } {
   const raw = (input as { mode?: unknown } | undefined)?.mode
-  if (raw === undefined || raw === null || raw === "") return "status"
-  if (raw === "status" || raw === "deepseek" || raw === "native" || raw === "config") return raw
-  throw new Error(`mode 只能是 status / deepseek / native / config，收到：${String(raw)}`)
+  if (raw === undefined || raw === null || raw === "") return { action: "status" }
+  if (raw === "status" || raw === "deepseek" || raw === "native" || raw === "config") return { action: raw }
+  return { invalid: String(raw) }
 }
 
 
@@ -95,6 +98,18 @@ export default Plugin.define({
   id: "deepseek-search",
   async setup(ctx) {
     const opt = (ctx.options ?? {}) as Record<string, unknown>
+    // Resolved once per setup: every tool output and the RPC status payload use
+    // this single language, so surfaces can never disagree.
+    const pick = resolveLanguage(opt.language, {
+      LC_ALL: readEnvValue("LC_ALL"),
+      LANG: readEnvValue("LANG"),
+    })
+    const language = pick.language
+    if (pick.problem !== undefined)
+      console.error(
+        `[deepseek-search] invalid language option ${JSON.stringify(pick.problem)}; ` +
+          `valid values: en / ja / zh-CN. Using ${language}.`,
+      )
     const configMode: Mode = str(opt.mode) === "native" ? "native" : "deepseek"
     // Precedence: a persisted `deepseek_mode` switch wins over the config file
     // until it is cleared with `mode: "config"`.
@@ -143,10 +158,10 @@ export default Plugin.define({
     }
 
     const runSearch = async (query: string, signal: AbortSignal): Promise<SearchResult[]> => {
-      const problem = validateQuery(query)
+      const problem = validateQuery(query, language)
       if (problem) throw new Error(problem)
       try {
-        const results = await deepseekSearch(query, apiKey, count, signal)
+        const results = await deepseekSearch(query, apiKey, count, language, signal)
         tally(results.length > 0 ? "search" : "empty")
         return results
       } catch (e) {
@@ -176,7 +191,7 @@ export default Plugin.define({
 
     const deepseekSearchExecute = async (input: unknown, context: ToolContext): Promise<ToolResult> => {
       const query = readQuery(input)
-      const problem = validateQuery(query)
+      const problem = validateQuery(query, language)
       if (problem) throw new Error(problem)
       await ctx.permission.assert({
         sessionID: context.sessionID,
@@ -217,38 +232,38 @@ export default Plugin.define({
       return true
     }
 
-    const describeMode = (): string =>
-      `当前搜索后端: ${mode}（来源: ${overrideMode ? "deepseek_mode 开关，已持久化" : "配置文件 options.mode"}）` +
-      (mode === "deepseek"
-        ? searchToolPatched
-          ? " · 内置 websearch 已由 DeepSeek 接管"
-          : " · 未找到内置 websearch 工具，实际未能接管"
-        : " · 内置 websearch 保持原生")
+    const describeMode = (): string => {
+      const source = overrideMode ? t(language, "mode.source.override") : t(language, "mode.source.config")
+      const suffix =
+        mode === "deepseek"
+          ? searchToolPatched
+            ? t(language, "mode.suffix.patched")
+            : t(language, "mode.suffix.notPatched")
+          : t(language, "mode.suffix.native")
+      return t(language, "mode.report", { mode, source, suffix })
+    }
 
     // Shared by the `deepseek_mode` tool and the RPC `setMode` method. The
     // returned strings are the tool's documented output, word for word.
     const switchMode = async (action: Exclude<ModeAction, "status">): Promise<string> => {
       if (!pristine) {
-        return (
-          `未找到内置 ${SEARCH_TOOL} 工具，无法在运行时切换。` +
-          `请改用配置文件把 options.mode 设为 "${action === "config" ? configMode : action}"。`
-        )
+        return t(language, "mode.notFound", {
+          tool: SEARCH_TOOL,
+          mode: action === "config" ? configMode : action,
+        })
       }
       if (action === "config") {
         await ctx.storage.remove(MODE_KEY)
         overrideMode = undefined
         await applySearchMode(configMode)
         notifyChanged()
-        return `${describeMode()}\n\n已清除持久化开关，回到配置文件设置（${configMode}）。`
+        return `${describeMode()}\n\n${t(language, "mode.configCleared", { mode: configMode })}`
       }
       await ctx.storage.set(MODE_KEY, action)
       overrideMode = action
       await applySearchMode(action)
       notifyChanged()
-      return (
-        `${describeMode()}\n\n已持久化：重启 OpenCode 后仍为 ${action}。` +
-        '要恢复配置文件设置，调用 deepseek_mode 并传 mode: "config"。'
-      )
+      return `${describeMode()}\n\n${t(language, "mode.persisted", { mode: action })}`
     }
 
     // ---------- tools ----------
@@ -289,11 +304,11 @@ export default Plugin.define({
         },
         execute: async (input, context) => {
           const url = String((input as { url?: unknown } | undefined)?.url ?? "").trim()
-          const problem = validateUrl(url)
+          const problem = validateUrl(url, language)
           if (problem) throw new Error(problem)
           try {
-            await context.progress({ status: `DeepSeek Fetch 抓取中: ${url}` })
-            const result = await deepseekFetch(url, apiKey, fetchMaxChars, context.signal)
+            await context.progress({ status: t(language, "progress.fetch", { url }) })
+            const result = await deepseekFetch(url, apiKey, fetchMaxChars, language, context.signal)
             tally(result.empty ? "empty" : "fetch")
             return {
               content: result.markdown,
@@ -322,10 +337,10 @@ export default Plugin.define({
         execute: async (input) => {
           const reset = Boolean((input as { reset?: unknown } | undefined)?.reset)
           const report = await withLedger(async (ledger) => {
-            const text = formatUsage(ledger, pricePerThousand, mode)
+            const text = formatUsage(ledger, pricePerThousand, mode, language)
             if (!reset) return text
             await ctx.storage.set(USAGE_KEY, emptyLedger())
-            return `${text}\n\n已清零本地统计。`
+            return `${text}\n\n${t(language, "usage.reset")}`
           })
           return { content: report }
         },
@@ -351,7 +366,9 @@ export default Plugin.define({
           additionalProperties: false,
         },
         execute: async (input) => {
-          const action = readModeAction(input)
+          const parsed = readModeAction(input)
+          if ("invalid" in parsed) throw new Error(t(language, "mode.invalid", { raw: parsed.invalid }))
+          const action = parsed.action
           if (action === "status") return { content: describeMode() }
           return { content: await switchMode(action) }
         },
@@ -372,7 +389,8 @@ export default Plugin.define({
             patched: searchToolPatched,
             hasKey: Boolean(apiKey),
             pricePerThousand,
-            ...usageSummaryLines(ledger, todayKey),
+            language,
+            ...usageSummaryLines(ledger, language, todayKey),
             // Same ledger read as the strings above, exposed as numbers so the
             // sidebars can lay them out for their own width.
             counts: {
@@ -384,13 +402,12 @@ export default Plugin.define({
         }),
       // The input is plain JSON Schema, hence `unknown`: report, never throw.
       setMode: async (input: unknown): Promise<ModeSwitchResult> => {
-        let action: ModeAction
-        try {
-          action = readModeAction(input)
-        } catch (e) {
-          return { ok: false, mode, message: e instanceof Error ? e.message : String(e) }
+        const parsed = readModeAction(input)
+        if ("invalid" in parsed) {
+          return { ok: false, mode, message: t(language, "mode.invalid", { raw: parsed.invalid }) }
         }
-        if (action === "status") return { ok: false, mode, message: "status 只读取当前模式，不做切换。" }
+        const action = parsed.action
+        if (action === "status") return { ok: false, mode, message: t(language, "mode.statusOnly") }
         const message = await switchMode(action)
         // `!pristine` means switchMode could not apply the change; its message says why.
         return { ok: Boolean(pristine), mode, message }
@@ -403,16 +420,16 @@ export default Plugin.define({
         `apiKey=${apiKey ? "present" : "MISSING"} count=${count} ` +
         `searchTool=${searchToolPatched ? "deepseek" : "untouched"}`,
     )
-    if (!apiKey) console.error(`[deepseek-search] ${missingKeyMessage()}`)
+    if (!apiKey) console.error(`[deepseek-search] ${missingKeyMessage("en")}`)
     if (overrideMode && overrideMode !== configMode)
       console.error(
-        `[deepseek-search] 注意：存在持久化开关 mode=${overrideMode}，已覆盖配置文件里的 ${configMode}；` +
-          `调用 deepseek_mode 传 "config" 可清除。`,
+        `[deepseek-search] note: a persisted mode=${overrideMode} overrides the config file's ${configMode}; ` +
+          `call deepseek_mode with "config" to clear it.`,
       )
     if (mode === "deepseek" && !searchToolPatched)
       console.error(
-        `[deepseek-search] 警告：未找到内置 ${SEARCH_TOOL} 工具，搜索仍走内置后端。` +
-          `可在 opencode.jsonc 设置 "websearch": { "provider": "${PROVIDER_ID}" } 强制路由。`,
+        `[deepseek-search] warning: built-in ${SEARCH_TOOL} tool not found; search still uses the built-in backend. ` +
+          `Set "websearch": { "provider": "${PROVIDER_ID}" } in opencode.jsonc to force the route.`,
       )
   },
 })

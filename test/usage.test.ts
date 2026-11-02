@@ -67,7 +67,7 @@ test("formatUsage reports today, this month and lifetime totals", () => {
   applyTally(ledger, "search", 5, "2026-10-05")
   applyTally(ledger, "search", 5, DAY)
   applyTally(ledger, "fetch", 5, DAY)
-  const report = formatUsage(ledger, 5, "deepseek", DAY)
+  const report = formatUsage(ledger, 5, "deepseek", "zh-CN", DAY)
   assert.match(report, /今日 2026-11-01: 搜索 1 · 抓取 1/)
   assert.match(report, /本月 2026-11: 搜索 1 · 抓取 1/)
   assert.match(report, /累计: 搜索 2 · 抓取 1/)
@@ -87,7 +87,7 @@ test("usageSummaryLines separates today, this month and lifetime totals", () => 
   applyTally(ledger, "failed", 5, DAY)
   applyTally(ledger, "fetch", 5, "2026-11-02")
 
-  const lines = usageSummaryLines(ledger, "2026-11-02")
+  const lines = usageSummaryLines(ledger, "zh-CN", "2026-11-02")
   assert.equal(lines.today, "搜索 0 · 抓取 1 · 空/失 0 · ¥0.0050")
   assert.equal(lines.month, "搜索 1 · 抓取 2 · 空/失 2 · ¥0.0150")
   assert.equal(lines.total, "搜索 3 · 抓取 2 · 空/失 2 · ¥0.0250")
@@ -95,5 +95,39 @@ test("usageSummaryLines separates today, this month and lifetime totals", () => 
 
 test("usageSummaryLines reports zeroes for an empty ledger", () => {
   const zero = "搜索 0 · 抓取 0 · 空/失 0 · ¥0.0000"
-  assert.deepEqual(usageSummaryLines(emptyLedger(), DAY), { today: zero, month: zero, total: zero })
+  assert.deepEqual(usageSummaryLines(emptyLedger(), "zh-CN", DAY), { today: zero, month: zero, total: zero })
+})
+
+test("formatUsage renders the English report", () => {
+  const ledger = emptyLedger()
+  applyTally(ledger, "search", 5, DAY)
+  applyTally(ledger, "fetch", 5, DAY)
+  const report = formatUsage(ledger, 5, "deepseek", "en", DAY)
+  assert.match(report, /Today 2026-11-01: searches 1 · fetches 1/)
+  assert.match(report, /Month 2026-11: searches 1 · fetches 1/)
+  assert.match(report, /Total: searches 1 · fetches 1/)
+  assert.match(report, /est\. ¥0\.0100/)
+  assert.match(report, /current mode deepseek/)
+  assert.match(report, /account-side bill is authoritative/)
+})
+
+test("formatUsage renders the Japanese report", () => {
+  const ledger = emptyLedger()
+  applyTally(ledger, "search", 5, DAY)
+  const report = formatUsage(ledger, 5, "native", "ja", DAY)
+  assert.match(report, /今日 2026-11-01: 検索 1/)
+  assert.match(report, /今月 2026-11: 検索 1/)
+  assert.match(report, /合計: 検索 1/)
+  assert.match(report, /現在のモード native/)
+})
+
+test("usageSummaryLines renders in English and Japanese", () => {
+  const ledger = emptyLedger()
+  applyTally(ledger, "fetch", 5, DAY)
+  assert.deepEqual(usageSummaryLines(ledger, "en", DAY), {
+    today: "Search 0 · Fetch 1 · empty/failed 0 · ¥0.0050",
+    month: "Search 0 · Fetch 1 · empty/failed 0 · ¥0.0050",
+    total: "Search 0 · Fetch 1 · empty/failed 0 · ¥0.0050",
+  })
+  assert.equal(usageSummaryLines(ledger, "ja", DAY).today, "検索 0 · 取得 1 · 空/失敗 0 · ¥0.0050")
 })

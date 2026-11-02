@@ -34,6 +34,7 @@ const STATUS: SearchStatus = {
   today: "搜索 0 · 抓取 3 · 空/失 2 · ¥0.0150",
   month: "搜索 5 · 抓取 3 · 空/失 3 · ¥0.0400",
   total: "搜索 5 · 抓取 3 · 空/失 3 · ¥0.0400",
+  language: "zh-CN",
   counts: COUNTS,
 }
 

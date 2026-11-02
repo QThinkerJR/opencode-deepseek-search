@@ -23,7 +23,7 @@ const step = async (name: string, run: () => Promise<string>) => {
 }
 
 await step("search returns results honouring count", async () => {
-  const results = await deepseekSearch("DeepSeek 官方文档", key, 3)
+  const results = await deepseekSearch("DeepSeek 官方文档", key, 3, "en")
   if (results.length === 0) throw new Error("empty results")
   if (results.length > 3) throw new Error(`count=3 returned ${results.length} results`)
   const first = results[0]
@@ -35,27 +35,27 @@ await step("search returns results honouring count", async () => {
 })
 
 await step("search with a nonsense query still returns a well-formed array", async () => {
-  const results = await deepseekSearch("zzzz-no-such-topic-opencode-deepseek-smoke", key, 3)
+  const results = await deepseekSearch("zzzz-no-such-topic-opencode-deepseek-smoke", key, 3, "en")
   if (!Array.isArray(results)) throw new Error("not an array")
   return `${results.length} results`
 })
 
 await step("fetch returns markdown", async () => {
-  const result = await deepseekFetch("https://example.com", key, 5000)
+  const result = await deepseekFetch("https://example.com", key, 5000, "en")
   if (result.empty) throw new Error("empty content")
   if (!result.markdown.includes("https://example.com")) throw new Error("markdown missing source url")
   return `${result.chars} chars`
 })
 
 await step("fetch truncates long pages", async () => {
-  const result = await deepseekFetch("https://example.com", key, 20)
+  const result = await deepseekFetch("https://example.com", key, 20, "en")
   if (!result.truncated) throw new Error("expected truncation at 20 chars")
-  if (!result.markdown.includes("[DeepSeek Fetch 截断提示]")) throw new Error("missing truncation notice")
+  if (!result.markdown.includes("[DeepSeek Fetch truncated]")) throw new Error("missing truncation notice")
   return "truncation notice present"
 })
 
 await step("invalid url is rejected before the request", async () => {
-  if (validateUrl("ftp://example.com") === undefined) throw new Error("ftp url accepted")
+  if (validateUrl("ftp://example.com", "en") === undefined) throw new Error("ftp url accepted")
   return "rejected"
 })
 

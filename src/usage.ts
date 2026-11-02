@@ -6,6 +6,9 @@
 //
 // Everything here is pure; persistence is the caller's job (ctx.storage).
 
+import { t } from "./i18n/index.ts"
+import type { Language } from "./rpc.ts"
+
 export const USAGE_KEY = "usage/v1"
 export const KEEP_DAYS = 60
 export const MICRO = 1_000_000
@@ -102,16 +105,30 @@ export function formatYuan(costMicro: number): string {
   return `¥${(costMicro / MICRO).toFixed(4)}`
 }
 
-export function formatUsage(ledger: UsageLedger, pricePerThousand: number, mode: string, today = dayKey()): string {
+export function formatUsage(
+  ledger: UsageLedger,
+  pricePerThousand: number,
+  mode: string,
+  language: Language,
+  today = dayKey(),
+): string {
   const month = today.slice(0, 7)
   const line = (label: string, d: UsageDay) =>
-    `${label}: 搜索 ${d.search} · 抓取 ${d.fetch} · 未计费 ${d.empty + d.failed}（空结果 ${d.empty} / 失败 ${d.failed}）· 估算 ${formatYuan(d.costMicro)}`
+    t(language, "usage.report.line", {
+      label,
+      search: d.search,
+      fetch: d.fetch,
+      skipped: d.empty + d.failed,
+      empty: d.empty,
+      failed: d.failed,
+      cost: formatYuan(d.costMicro),
+    })
   return [
-    `DeepSeek 用量（本地统计，按成功请求估算；当前模式 ${mode}；单价 ¥${pricePerThousand}/1000 次）`,
-    line(`今日 ${today}`, sumDays(ledger, (k) => k === today)),
-    line(`本月 ${month}`, sumDays(ledger, (k) => k.startsWith(month))),
-    line("累计", sumDays(ledger, () => true)),
-    "说明：空结果与失败请求不计费；DeepSeek 以账号侧账单为准，本统计不含其他机器或其他工具的调用。",
+    t(language, "usage.report.title", { mode, price: pricePerThousand }),
+    line(`${t(language, "usage.label.today")} ${today}`, sumDays(ledger, (k) => k === today)),
+    line(`${t(language, "usage.label.month")} ${month}`, sumDays(ledger, (k) => k.startsWith(month))),
+    line(t(language, "usage.label.total"), sumDays(ledger, () => true)),
+    t(language, "usage.report.note"),
   ].join("\n")
 }
 
@@ -122,11 +139,17 @@ export function formatUsage(ledger: UsageLedger, pricePerThousand: number, mode:
  */
 export function usageSummaryLines(
   ledger: UsageLedger,
+  language: Language,
   today = dayKey(),
 ): { today: string; month: string; total: string } {
   const month = today.slice(0, 7)
   const line = (d: UsageDay) =>
-    `搜索 ${d.search} · 抓取 ${d.fetch} · 空/失 ${d.empty + d.failed} · ${formatYuan(d.costMicro)}`
+    t(language, "usage.summary.line", {
+      search: d.search,
+      fetch: d.fetch,
+      skipped: d.empty + d.failed,
+      cost: formatYuan(d.costMicro),
+    })
   return {
     today: line(sumDays(ledger, (k) => k === today)),
     month: line(sumDays(ledger, (k) => k.startsWith(month))),
