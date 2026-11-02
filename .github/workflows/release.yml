@@ -23,4 +23,13 @@ jobs:
       - run: npm ci
       - run: npm run build:gui
       - run: node --experimental-strip-types scripts/check-gui-bundle.ts
-      - run: npm publish --provenance --access public
+      # A release may be published by hand (the first one always is). Skipping an
+      # existing version keeps the tag build green instead of failing on 403.
+      - name: Publish to npm
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          if npm view "@qthinker/opencode-deepseek-search@$VERSION" version >/dev/null 2>&1; then
+            echo "::notice::@qthinker/opencode-deepseek-search@$VERSION is already on npm; nothing to publish."
+            exit 0
+          fi
+          npm publish --provenance --access public
