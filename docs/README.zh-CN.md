@@ -35,9 +35,10 @@ opencode service restart   # User 变量只进新进程
 }
 ```
 
-> **哪个文件加载哪个半边。** 服务端插件与桌面面板读的是 `opencode.json(c)`——桌面应用只读这个文件，且要写进**全局**的
-> `~/.config/opencode/opencode.jsonc` 才会在每个窗口生效；TUI 半边读的是 `cli.json` 的 `"plugins": [...]`。
-> 也就是说启用是**按半边**算的：想用哪半边就把它列进对应文件（npm 包写包名，本地目录写路径）。
+> **一条配置就够。** 列进 `opencode.json(c)` 后，服务端、TUI 侧边栏、桌面面板会**一起生效**：两个客户端都会加载
+> 活跃插件里「自带对应半边」的那个入口。已实测：只写全局 `~/.config/opencode/opencode.jsonc`、`cli.json` 完全不写，
+> TUI 卡片与桌面面板都照常出现。`cli.json` 的 `"plugins": [...]` 只用于**纯 TUI 插件**（没有服务端半边的包，例如
+> `opencode-go-usage-tui`）。配置请写在**全局** `opencode.jsonc`，这样桌面在每个窗口都能看到。
 
 带选项（推荐，`mode` 等都在这里）：
 
@@ -199,7 +200,7 @@ API Key 不写日志。
 | `429` 触发限速 | 已退避重试一次，稍后再试 |
 | Fetch 报 `403` / `404` | 站点策略拦截或无正文可提取，可改用内置 `webfetch` |
 | 搜索仍是原生后端 | `mode` 或持久化开关为 `native`；若两处都已完成仍如此，说明未找到内置 `websearch` 工具，用配置 `"websearch": { "provider": "deepseek" }` |
-| TUI 侧边栏里没有 DeepSeek 卡片 | TUI 半边由 `cli.json` 的 `"plugins": [...]` 启用，不是 `opencode.jsonc`；把路径/包名加进去后重启 TUI |
+| TUI 侧边栏里没有 DeepSeek 卡片 | 先看 `opencode plugin list` 是否显示 `deepseek-search` 处于 active——卡片来自**活跃的服务端插件**，所以关键是 `opencode.json(c)`，`cli.json` 不需要它；装完重启一次 TUI |
 | 桌面 New tab 列表里没有 DeepSeek | 桌面只读**全局** `opencode.jsonc`；且 bundle 必须存在——从源码目录跑时先 `npm run build:gui`，再重载窗口 |
 | 侧边栏显示「读取失败」 | 该半边连不上 RPC：先 `opencode plugin list` 确认 `deepseek-search` 处于 active，再到 `~/.local/share/opencode/log/opencode.log` 里看 `/api/rpc/deepseek-search/status`。若是 `400 rpc.invalid_input`，说明半边与服务端契约不一致——重载那个客户端 |
 

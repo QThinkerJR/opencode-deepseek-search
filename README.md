@@ -45,7 +45,11 @@ Then add the plugin to `opencode.jsonc`:
 }
 ```
 
-> **Which file loads which half.** The server plugin and the desktop panel are read from `opencode.json(c)` — the desktop app reads only that file, and a **global** `~/.config/opencode/opencode.jsonc` entry is what makes the panel appear in every window. The TUI half is read from `cli.json` (`"plugins": [...]`). So a plugin is enabled per half: list it in each file whose half you want, whether it comes from npm (by package name) or from a local directory (by path).
+> **One entry is enough.** A plugin listed in `opencode.json(c)` is enabled for the server **and** for both sidebars:
+> the TUI and the desktop load the corresponding half of every active plugin that ships one. Verified: with the plugin
+> listed only in the global `~/.config/opencode/opencode.jsonc`, both the TUI card and the desktop panel appear.
+> `cli.json` (`"plugins": [...]`) is only for **TUI-only** plugins — packages without a server half, such as
+> `opencode-go-usage-tui`. Keep the entry in the **global** `opencode.jsonc` so the desktop shows it in every window.
 
 With options (recommended — this is where `mode` and friends live):
 
@@ -218,7 +222,7 @@ contain text that tries to steer the model.
 | `429` rate limited | Backed off once already; retry later |
 | `403` / `404` on fetch | The site blocks extraction or the page has no readable text; try the built-in `webfetch` |
 | Search still hits the native backend | `mode` or the persisted switch is `native`; if both are `deepseek`, the built-in `websearch` tool was not found — use config `"websearch": { "provider": "deepseek" }` |
-| TUI sidebar has no DeepSeek card | The TUI half is enabled in `cli.json` (`"plugins": [...]`), not in `opencode.jsonc`; add the path/package there and restart the TUI |
+| TUI sidebar has no DeepSeek card | Check `opencode plugin list`: the card comes from the **active server plugin**, so `opencode.json(c)` is what matters — `cli.json` does not need it. Restart the TUI after installing |
 | Desktop has no DeepSeek entry in the *New tab* list | The desktop reads plugins from the **global** `opencode.jsonc`, and its bundle must exist — run `npm run build:gui` when working from a clone, then reload the window |
 | Sidebar says `读取失败` | The half cannot reach the RPC: check `opencode plugin list` reports `deepseek-search` as active, then look for `/api/rpc/deepseek-search/status` in `~/.local/share/opencode/log/opencode.log`. A `400 rpc.invalid_input` means a half and the server disagree on the contract — reload that client |
 
