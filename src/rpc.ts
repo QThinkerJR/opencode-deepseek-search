@@ -38,11 +38,36 @@ const USAGE_COUNTS_SCHEMA = {
   additionalProperties: false,
 } as const
 
+// Account balance snapshot in `status.balance`. `currency` deliberately has no
+// enum: a value the server could not normalize must not fail the whole payload
+// at output-schema validation time.
+const BALANCE_SCHEMA = {
+  type: "object",
+  properties: {
+    isAvailable: { type: "boolean" },
+    currency: { type: "string" },
+    totalBalance: { type: "string" },
+    grantedBalance: { type: "string" },
+    toppedUpBalance: { type: "string" },
+    fetchedAt: { type: "number" },
+  },
+  required: ["isAvailable", "currency", "totalBalance", "grantedBalance", "toppedUpBalance", "fetchedAt"],
+  additionalProperties: false,
+} as const
+
 export const DeepSeekRpc = {
   id: DEEPSEEK_RPC_ID,
   methods: {
     status: {
-      input: { type: "object", properties: {}, additionalProperties: false },
+      input: {
+        type: "object",
+        properties: {
+          // Only a manual refresh sends `{ force: true }`; timer paths MUST send
+          // `{}`, because older servers reject unknown input properties.
+          force: { type: "boolean" },
+        },
+        additionalProperties: false,
+      },
       output: {
         type: "object",
         properties: {
@@ -67,6 +92,9 @@ export const DeepSeekRpc = {
             required: ["today", "month", "total"],
             additionalProperties: false,
           },
+          // Optional like `counts`: absent while the first probe is in flight, on
+          // servers without the endpoint, or when the API key is missing.
+          balance: BALANCE_SCHEMA,
         },
         required: ["mode", "source", "patched", "hasKey", "pricePerThousand", "today", "month", "total"],
         additionalProperties: false,
@@ -107,6 +135,24 @@ export interface UsageCounts {
   costMicro: number
 }
 
+/**
+ * DeepSeek account balance as reported by `GET /user/balance`.
+ *
+ * `fetchedAt` is epoch milliseconds attached by the server when it caches the
+ * snapshot, so sidebars can show staleness without trusting client clocks.
+ */
+export interface BalanceStatus {
+  isAvailable: boolean
+  currency: string
+  totalBalance: string
+  grantedBalance: string
+  toppedUpBalance: string
+  fetchedAt: number
+}
+
+/** The wire shape of a balance probe, before the cache stamps `fetchedAt`. */
+export type BalanceRead = Omit<BalanceStatus, "fetchedAt">
+
 export interface SearchStatus {
   mode: "deepseek" | "native"
   source: "override" | "config"
@@ -124,6 +170,8 @@ export interface SearchStatus {
   language: Language
   /** Structured counters, so each surface can format for its own width. Optional for older servers. */
   counts?: { today: UsageCounts; month: UsageCounts; total: UsageCounts }
+  /** Last cached balance probe. Absent until the first successful fetch. */
+  balance?: BalanceStatus
 }
 
 export interface ModeSwitchResult {
@@ -151,10 +199,23 @@ function readUsageCounts(value: unknown): UsageCounts | undefined {
   return { search, fetch, empty, failed, costMicro } as UsageCounts
 }
 
+/** Strict read of a cached balance snapshot: all six fields, currency normalized. */
+function readBalance(value: unknown): BalanceStatus | undefined {
+  if (!isRecord(value)) return undefined
+  const { isAvailable, currency, totalBalance, grantedBalance, toppedUpBalance, fetchedAt } = value
+  if (typeof isAvailable !== "boolean") return undefined
+  if (currency !== "CNY" && currency !== "USD") return undefined
+  for (const text of [totalBalance, grantedBalance, toppedUpBalance]) {
+    if (typeof text !== "string" || text.length === 0) return undefined
+  }
+  if (typeof fetchedAt !== "number" || !Number.isFinite(fetchedAt) || fetchedAt < 0) return undefined
+  return { isAvailable, currency, totalBalance, grantedBalance, toppedUpBalance, fetchedAt } as BalanceStatus
+}
+
 /** Defensive read of an RPC `status` result. Never throws. */
 export function readStatus(raw: unknown): SearchStatus | undefined {
   if (!isRecord(raw)) return undefined
-  const { mode, source, patched, hasKey, pricePerThousand, today, month, total, language, counts } = raw
+  const { mode, source, patched, hasKey, pricePerThousand, today, month, total, language, counts, balance } = raw
   if (!isMode(mode)) return undefined
   if (source !== "override" && source !== "config") return undefined
   if (typeof patched !== "boolean" || typeof hasKey !== "boolean") return undefined
@@ -180,6 +241,10 @@ export function readStatus(raw: unknown): SearchStatus | undefined {
     const totalCounts = readUsageCounts(counts.total)
     if (todayCounts && monthCounts && totalCounts) status.counts = { today: todayCounts, month: monthCounts, total: totalCounts }
   }
+  // A missing balance stays absent (no probe yet, no key, older server); a
+  // malformed one is dropped without failing the rest of the payload.
+  const balanceStatus = readBalance(balance)
+  if (balanceStatus) status.balance = balanceStatus
   return status
 }
 

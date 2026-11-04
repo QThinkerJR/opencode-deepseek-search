@@ -163,3 +163,68 @@ test("readModeResult narrows the switch result", () => {
   assert.equal(readModeResult({ ...ok, mode: 1 }), undefined)
   assert.equal(readModeResult({ ...ok, message: undefined }), undefined)
 })
+
+const BALANCE = {
+  isAvailable: true,
+  currency: "CNY",
+  totalBalance: "110.00",
+  grantedBalance: "10.00",
+  toppedUpBalance: "100.00",
+  fetchedAt: 1_793_000_000_000,
+}
+
+test("status schemas expose an optional balance and an optional force input", () => {
+  const output = DeepSeekRpc.methods.status.output
+  const balance = (output.properties as Record<string, any>).balance
+  assert.equal(balance.type, "object")
+  assert.equal(balance.additionalProperties, false)
+  assert.equal((output.required as readonly string[]).includes("balance"), false)
+  // No enum on the wire: an unexpected currency must not invalidate the payload.
+  assert.equal(balance.properties.currency.enum, undefined)
+  assert.deepEqual(balance.required, [
+    "isAvailable",
+    "currency",
+    "totalBalance",
+    "grantedBalance",
+    "toppedUpBalance",
+    "fetchedAt",
+  ])
+  const input = DeepSeekRpc.methods.status.input
+  assert.equal((input.properties as Record<string, any>).force.type, "boolean")
+  assert.equal(input.additionalProperties, false)
+  // Timer paths send `{}`, so `force` must never be required.
+  assert.equal("required" in input, false)
+})
+
+test("readStatus passes a valid balance through", () => {
+  assert.deepEqual(readStatus({ ...STATUS, balance: BALANCE }), { ...STATUS, balance: BALANCE })
+})
+
+test("readStatus drops a malformed balance but keeps the rest of the status", () => {
+  const broken: unknown[] = [
+    null,
+    "balance",
+    42,
+    [],
+    {},
+    { ...BALANCE, currency: "EUR" },
+    { ...BALANCE, currency: undefined },
+    { ...BALANCE, isAvailable: "yes" },
+    { ...BALANCE, totalBalance: 110 },
+    { ...BALANCE, toppedUpBalance: "" },
+    { ...BALANCE, fetchedAt: undefined },
+    { ...BALANCE, fetchedAt: Number.NaN },
+    { ...BALANCE, fetchedAt: -1 },
+  ]
+  for (const balance of broken) {
+    const status = readStatus({ ...STATUS, balance })
+    assert.deepEqual(status, STATUS, `balance ${JSON.stringify(balance)} is dropped`)
+    assert.equal("balance" in (status as object), false)
+  }
+})
+
+test("readStatus leaves balance absent when the server does not send one", () => {
+  const status = readStatus(STATUS)
+  assert.equal(status?.balance, undefined)
+  assert.equal("balance" in (status as object), false)
+})

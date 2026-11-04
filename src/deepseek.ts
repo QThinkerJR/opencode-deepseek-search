@@ -6,14 +6,16 @@
 // network access.
 
 import { t } from "./i18n/index.ts"
-import type { Language } from "./rpc.ts"
+import type { BalanceRead, Language } from "./rpc.ts"
 
 export const API_BASE = "https://api.deepseek.com"
 export const SEARCH_PATH = "/v1/tools/search"
 export const FETCH_PATH = "/v1/tools/fetch"
+export const BALANCE_PATH = "/user/balance"
 
 export const SEARCH_TIMEOUT_MS = 15_000
 export const FETCH_TIMEOUT_MS = 30_000
+export const BALANCE_TIMEOUT_MS = 10_000
 const RETRY_DELAY_MS = 1_000
 const RETRY_DELAY_MAX_MS = 5_000
 export const MAX_QUERY_CHARS = 128
@@ -128,7 +130,8 @@ function retryAfterMs(headers: Headers): number {
 
 // ---------- shared HTTP core: timeout, signal passthrough, single retry ----------
 
-export async function postJson(
+async function requestJson(
+  method: "POST" | "GET",
   path: string,
   body: unknown,
   apiKey: string,
@@ -140,10 +143,15 @@ export async function postJson(
   for (let attempt = 1; ; attempt++) {
     const merged = mergeAbort(signal, timeoutMs)
     try {
+      // GET reads a resource, so it sends no body and no content-type header.
+      const headers: Record<string, string> =
+        method === "POST"
+          ? { "content-type": "application/json", authorization: `Bearer ${apiKey}` }
+          : { authorization: `Bearer ${apiKey}` }
       const res = await fetch(`${API_BASE}${path}`, {
-        method: "POST",
-        headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` },
-        body: JSON.stringify(body),
+        method,
+        headers,
+        body: method === "POST" ? JSON.stringify(body) : undefined,
         signal: merged.signal,
       })
       if (res.ok) {
@@ -177,6 +185,27 @@ export async function postJson(
       merged.dispose()
     }
   }
+}
+
+export function postJson(
+  path: string,
+  body: unknown,
+  apiKey: string,
+  timeoutMs: number,
+  language: Language,
+  signal?: AbortSignal,
+): Promise<unknown> {
+  return requestJson("POST", path, body, apiKey, timeoutMs, language, signal)
+}
+
+export function getJson(
+  path: string,
+  apiKey: string,
+  timeoutMs: number,
+  language: Language,
+  signal?: AbortSignal,
+): Promise<unknown> {
+  return requestJson("GET", path, undefined, apiKey, timeoutMs, language, signal)
 }
 
 // ---------- DeepSeek Search -> WebSearch.Result[] ----------
@@ -284,6 +313,52 @@ export async function deepseekFetch(
 ): Promise<FetchResult> {
   const data = await postJson(FETCH_PATH, { url }, apiKey, FETCH_TIMEOUT_MS, language, signal)
   return mapFetchResponse(data, url, maxChars, language)
+}
+
+// ---------- DeepSeek Balance -> BalanceRead ----------
+
+interface BalanceInfo {
+  currency?: unknown
+  total_balance?: unknown
+  granted_balance?: unknown
+  topped_up_balance?: unknown
+}
+
+function balanceText(value: unknown): string | undefined {
+  return typeof value === "string" && value.length > 0 ? value : undefined
+}
+
+// `/user/balance` lists one entry per currency. The plugin bills in CNY, so that
+// entry wins when present; anything else is accepted only as a fallback.
+export function mapBalance(data: unknown): BalanceRead | undefined {
+  if (typeof data !== "object" || data === null) return undefined
+  const raw = data as { is_available?: unknown; balance_infos?: unknown }
+  const isAvailable = raw.is_available
+  if (typeof isAvailable !== "boolean") return undefined
+  const infos = raw.balance_infos
+  if (!Array.isArray(infos) || infos.length === 0) return undefined
+  const rows = infos as Array<BalanceInfo | null | undefined>
+  const entry = rows.find((row) => row?.currency === "CNY") ?? rows[0]
+  const currency = entry?.currency
+  if (currency !== "CNY" && currency !== "USD") return undefined
+  const totalBalance = balanceText(entry?.total_balance)
+  const grantedBalance = balanceText(entry?.granted_balance)
+  const toppedUpBalance = balanceText(entry?.topped_up_balance)
+  if (!totalBalance || !grantedBalance || !toppedUpBalance) return undefined
+  return { isAvailable, currency, totalBalance, grantedBalance, toppedUpBalance }
+}
+
+export async function deepseekBalance(
+  apiKey: string,
+  language: Language,
+  signal?: AbortSignal,
+): Promise<BalanceRead> {
+  const data = await getJson(BALANCE_PATH, apiKey, BALANCE_TIMEOUT_MS, language, signal)
+  const balance = mapBalance(data)
+  // No localizable message on purpose: the balance cache swallows this error, so
+  // it is a diagnostic string rather than user-facing copy.
+  if (!balance) throw new Error("DeepSeek balance response is missing required fields")
+  return balance
 }
 
 export function validateQuery(query: string, language: Language): string | undefined {

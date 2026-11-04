@@ -2,7 +2,7 @@
 //
 //   node --experimental-strip-types scripts/smoke.ts
 
-import { deepseekFetch, deepseekSearch, validateUrl } from "../src/deepseek.ts"
+import { deepseekBalance, deepseekFetch, deepseekSearch, validateUrl } from "../src/deepseek.ts"
 
 const key = process.env.DEEPSEEK_API_KEY?.trim()
 
@@ -57,6 +57,15 @@ await step("fetch truncates long pages", async () => {
 await step("invalid url is rejected before the request", async () => {
   if (validateUrl("ftp://example.com", "en") === undefined) throw new Error("ftp url accepted")
   return "rejected"
+})
+
+await step("balance returns account info", async () => {
+  const balance = await deepseekBalance(key, "en")
+  if (typeof balance.totalBalance !== "string" || balance.totalBalance.length === 0)
+    throw new Error("totalBalance is not a non-empty string")
+  if (balance.currency !== "CNY" && balance.currency !== "USD")
+    throw new Error(`unexpected currency ${balance.currency}`)
+  return `${balance.isAvailable ? "available" : "unavailable"} ${balance.totalBalance} ${balance.currency}`
 })
 
 console.log(failures === 0 ? "SMOKE OK" : `SMOKE FAILED (${failures})`)

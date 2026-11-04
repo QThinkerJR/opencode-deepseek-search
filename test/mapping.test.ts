@@ -7,6 +7,7 @@ import {
   buildSearchBody,
   formatSearchResults,
   httpError,
+  mapBalance,
   mapFetchResponse,
   mapSearchResults,
   validateQuery,
@@ -151,4 +152,64 @@ test("mapFetchResponse localizes the truncation notice", () => {
   assert.match(en.markdown, /\[DeepSeek Fetch truncated\]/)
   const ja = mapFetchResponse({ content: "x".repeat(50) }, "https://example.com", 10, "ja")
   assert.match(ja.markdown, /\[DeepSeek Fetch 切り詰め\]/)
+})
+
+test("mapBalance prefers the CNY entry over other currencies", () => {
+  const balance = mapBalance({
+    is_available: true,
+    balance_infos: [
+      { currency: "USD", total_balance: "15.00", granted_balance: "5.00", topped_up_balance: "10.00" },
+      { currency: "CNY", total_balance: "110.00", granted_balance: "10.00", topped_up_balance: "100.00" },
+    ],
+  })
+  assert.deepEqual(balance, {
+    isAvailable: true,
+    currency: "CNY",
+    totalBalance: "110.00",
+    grantedBalance: "10.00",
+    toppedUpBalance: "100.00",
+  })
+})
+
+test("mapBalance falls back to the first entry when no CNY entry exists", () => {
+  const balance = mapBalance({
+    is_available: false,
+    balance_infos: [
+      { currency: "USD", total_balance: "0.00", granted_balance: "0.00", topped_up_balance: "0.00" },
+      { currency: "EUR", total_balance: "1.00", granted_balance: "1.00", topped_up_balance: "1.00" },
+    ],
+  })
+  assert.equal(balance?.currency, "USD")
+  assert.equal(balance?.isAvailable, false)
+})
+
+test("mapBalance returns undefined for a missing or non-boolean is_available", () => {
+  const infos = [{ currency: "CNY", total_balance: "1", granted_balance: "1", topped_up_balance: "0" }]
+  assert.equal(mapBalance({ balance_infos: infos }), undefined)
+  assert.equal(mapBalance({ is_available: "true", balance_infos: infos }), undefined)
+})
+
+test("mapBalance returns undefined without a usable balance_infos list", () => {
+  assert.equal(mapBalance({ is_available: true, balance_infos: [] }), undefined)
+  assert.equal(mapBalance({ is_available: true, balance_infos: "CNY" }), undefined)
+  assert.equal(mapBalance({ is_available: true }), undefined)
+  assert.equal(mapBalance(null), undefined)
+})
+
+test("mapBalance returns undefined when a balance field is not a non-empty string", () => {
+  const build = (total: unknown) => ({
+    is_available: true,
+    balance_infos: [{ currency: "CNY", total_balance: total, granted_balance: "1.00", topped_up_balance: "2.00" }],
+  })
+  assert.equal(mapBalance(build(110)), undefined)
+  assert.equal(mapBalance(build("")), undefined)
+  assert.equal(mapBalance(build(undefined)), undefined)
+})
+
+test("mapBalance returns undefined for an unsupported currency", () => {
+  const balance = mapBalance({
+    is_available: true,
+    balance_infos: [{ currency: "EUR", total_balance: "1.00", granted_balance: "1.00", topped_up_balance: "0.00" }],
+  })
+  assert.equal(balance, undefined)
 })

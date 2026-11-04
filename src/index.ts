@@ -16,6 +16,7 @@ import { Plugin } from "@opencode/plugin"
 import type { Result as ToolResult, ToolContext } from "@opencode/plugin/promise/tool"
 import type { RpcRegistration } from "@opencode/plugin/promise/rpc"
 import {
+  deepseekBalance,
   deepseekFetch,
   deepseekSearch,
   formatSearchResults,
@@ -25,7 +26,7 @@ import {
   type SearchResult,
 } from "./deepseek.ts"
 import { resolveLanguage, t } from "./i18n/index.ts"
-import { DeepSeekRpc, type ModeSwitchResult, type SearchStatus } from "./rpc.ts"
+import { DeepSeekRpc, type BalanceRead, type ModeSwitchResult, type SearchStatus } from "./rpc.ts"
 import {
   USAGE_KEY,
   applyTally,
@@ -375,13 +376,52 @@ export default Plugin.define({
       })
     })
 
+    // ---------- account balance cache ----------
+    // The sidebars poll `status`, so the balance is cached for a minute: at most
+    // one upstream probe per TTL, shared by every caller. Failures keep the last
+    // good snapshot and back off instead of retrying on every poll.
+    const BALANCE_TTL_MS = 60_000
+    let balanceCache: { value: BalanceRead; at: number } | undefined
+    let balanceInFlight: Promise<void> | undefined
+    let lastBalanceAttemptAt = 0
+    // Never rejects: the balance is decoration on `status`, not a feature that
+    // may break it, so every failure is swallowed here.
+    const refreshBalance = (force: boolean): Promise<void> => {
+      if (!apiKey) return Promise.resolve()
+      if (balanceInFlight) return balanceInFlight
+      const startedAt = Date.now()
+      if (!force) {
+        if (balanceCache && startedAt - balanceCache.at < BALANCE_TTL_MS) return Promise.resolve()
+        if (startedAt - lastBalanceAttemptAt < BALANCE_TTL_MS) return Promise.resolve()
+      }
+      lastBalanceAttemptAt = startedAt
+      const run = (async (): Promise<void> => {
+        try {
+          const value = await deepseekBalance(apiKey, language)
+          balanceCache = { value, at: Date.now() }
+          notifyChanged()
+        } catch {
+          /* keep the previous snapshot */
+        } finally {
+          balanceInFlight = undefined
+        }
+      })()
+      balanceInFlight = run
+      return run
+    }
+
     // ---------- RPC contract (TUI / desktop sidebars) ----------
     // Both sidebars read `status` and call `setMode`; nothing else crosses the
     // process boundary, so the plugin's state stays the single source of truth.
     rpcRegistration = await ctx.rpc.register(DeepSeekRpc, {
       // Reads through `withLedger` so it observes the same serialized chain.
-      status: async (): Promise<SearchStatus> =>
-        withLedger((ledger): SearchStatus => {
+      status: async (input: unknown): Promise<SearchStatus> => {
+        // A manual refresh (the sidebar's refresh button) may ask for a fresh
+        // probe; timer paths send `{}` so old servers still accept the input.
+        const force = (input as { force?: unknown } | undefined)?.force === true
+        // Kicked, not awaited: `status` must stay fast even when the probe hangs.
+        void refreshBalance(force)
+        return withLedger((ledger): SearchStatus => {
           const todayKey = dayKey()
           return {
             mode,
@@ -398,8 +438,12 @@ export default Plugin.define({
               month: sumDays(ledger, (k) => k.startsWith(todayKey.slice(0, 7))),
               total: sumDays(ledger, () => true),
             },
+            // Absent until the first successful probe; `fetchedAt` is stamped by
+            // the cache, so clients can render staleness.
+            balance: balanceCache ? { ...balanceCache.value, fetchedAt: balanceCache.at } : undefined,
           }
-        }),
+        })
+      },
       // The input is plain JSON Schema, hence `unknown`: report, never throw.
       setMode: async (input: unknown): Promise<ModeSwitchResult> => {
         const parsed = readModeAction(input)
