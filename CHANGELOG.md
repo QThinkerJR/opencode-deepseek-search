@@ -7,7 +7,8 @@ and the version numbers follow [Semantic Versioning](https://semver.org/).
 
 ### Added
 
-- **Account balance in both sidebars**: the server probes `GET /user/balance` with the same API key and serves a
+- **Account balance in both sidebars**: the server probes `GET /user/balance`
+  (<https://api-docs.deepseek.com/zh-cn/api/get-user-balance>) with the same API key and serves a
   cached snapshot through the `status` RPC as an optional `balance` field — 60s TTL, at most one upstream request
   per minute, failures keep the last snapshot, and the balance is absent until the first successful probe. The TUI
   card closes its body with the balance (warning-colored when the account cannot pay, dropped below ~12 columns

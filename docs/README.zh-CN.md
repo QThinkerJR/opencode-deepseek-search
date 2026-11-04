@@ -8,7 +8,8 @@
 与已占用的同名 V1 包的区别：本项目面向 **V2 插件 API**、支持**运行时切换后端**、自带**本地用量与费用估算**。
 
 > 已在 `opencode 2.2.5` + `@opencode/plugin@2.2.5`（Windows）实测。Search/Fetch 的接口事实来自
-> <https://api-docs.deepseek.com/zh-cn/guides/search>。
+> <https://api-docs.deepseek.com/zh-cn/guides/search>；余额查询接口来自
+> <https://api-docs.deepseek.com/zh-cn/api/get-user-balance>。
 
 English: [README.md](https://github.com/QThinkerJR/opencode-deepseek-search/blob/main/README.md)。界面语言支持
 `en` / `ja` / `zh-CN`（默认英文，可用 `options.language` 指定），文档只提供英文与中文两版。
@@ -163,7 +164,8 @@ deepseek_mode 开关（storage: mode/v1）  >  options.mode  >  内置默认
 - 动作行只说点击真的会做什么。没有配置 API Key 时没有可做的动作，就显示该怎么修（`DEEPSEEK_API_KEY`）；
   内置工具没能打上补丁时显示「未接管」，而不是假装已启用。
 - 每次记账与每次切换后都会发 `changed` 事件触发刷新，两个面另有 10 秒重读作为兜底。
-- **正文末行是你的账户余额**（服务端用同一个 Key 调官方 `GET /user/balance`，缓存 60 秒、失败保留上次值）：
+- **正文末行是你的账户余额**（服务端用同一个 Key 调官方查询余额接口 `GET /user/balance`，来源：
+  <https://api-docs.deepseek.com/zh-cn/api/get-user-balance>；缓存 60 秒、失败保留上次值）：
   三行用量读作小票，账户真相落在下面。仅在接管启用或原生模式这两态显示——只有这两态卡片真正指向账户。
   余额不足时金额转警示色；侧边栏太窄（约 12 列以下）宁可整行省略也不挤压。桌面面板把它放成用量表下方的
   账户块，悬停可看赠金/充值细分（仅两者都非零时）。手动刷新（桌面刷新按钮、TUI 菜单里的「刷新」、失败重试）

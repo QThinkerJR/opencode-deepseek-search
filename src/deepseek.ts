@@ -11,6 +11,8 @@ import type { BalanceRead, Language } from "./rpc.ts"
 export const API_BASE = "https://api.deepseek.com"
 export const SEARCH_PATH = "/v1/tools/search"
 export const FETCH_PATH = "/v1/tools/fetch"
+// Account balance endpoint, per the official docs:
+// https://api-docs.deepseek.com/zh-cn/api/get-user-balance
 export const BALANCE_PATH = "/user/balance"
 
 export const SEARCH_TIMEOUT_MS = 15_000

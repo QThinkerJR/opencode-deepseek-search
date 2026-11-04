@@ -16,7 +16,8 @@ Differs from the existing same-named V1 package: this one targets the **V2 plugi
 runtime**, and reports **local usage and estimated cost**.
 
 > Verified against `opencode 2.2.5` with `@opencode/plugin@2.2.5` on Windows. Search/Fetch API facts come from
-> <https://api-docs.deepseek.com/zh-cn/guides/search>.
+> <https://api-docs.deepseek.com/zh-cn/guides/search>; the balance endpoint from
+> <https://api-docs.deepseek.com/zh-cn/api/get-user-balance>.
 
 ## Requirements
 
@@ -182,8 +183,9 @@ The plugin also shows up where you work, and can be switched without the model o
   than pretending to be enabled.
 - Stats refresh on a `changed` event emitted after every tally and every switch, with a 10-second reread as a
   fallback in both surfaces.
-- The body closes with your **account balance**, read from `GET /user/balance` with the same API key — the usage
-  rows read as the receipt and the account truth lands under them. It shows in the two states where the card
+- The body closes with your **account balance**, read from `GET /user/balance` with the same API key
+  (<https://api-docs.deepseek.com/zh-cn/api/get-user-balance>) — the usage rows read as the receipt and the account
+  truth lands under them. It shows in the two states where the card
   actually points at the account (takeover enabled, or native mode); an unavailable balance gets a warning-colored
   amount, and below ~12 columns the row is dropped rather than squeezed. The server serves a snapshot cached for
   60 seconds — at most one upstream request per minute, failures keep the last value — and only a manual refresh
