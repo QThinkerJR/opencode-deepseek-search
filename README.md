@@ -182,13 +182,14 @@ The plugin also shows up where you work, and can be switched without the model o
   than pretending to be enabled.
 - Stats refresh on a `changed` event emitted after every tally and every switch, with a 10-second reread as a
   fallback in both surfaces.
-- The first body row is your **account balance**, read from `GET /user/balance` with the same API key. It shows in
-  the two states where the card actually points at the account (takeover enabled, or native mode); an unavailable
-  balance gets a warning-colored amount, and below ~12 columns the row is dropped rather than squeezed. The server
-  serves a snapshot cached for 60 seconds — at most one upstream request per minute, failures keep the last value —
-  and only a manual refresh (the desktop refresh button, the TUI menu's *Refresh*, both retry paths) forces a
-  re-probe; the 10-second polls never do. The desktop panel shows it as an account block above the usage table,
-  with the granted/topped-up split on hover (when the split is meaningful).
+- The body closes with your **account balance**, read from `GET /user/balance` with the same API key — the usage
+  rows read as the receipt and the account truth lands under them. It shows in the two states where the card
+  actually points at the account (takeover enabled, or native mode); an unavailable balance gets a warning-colored
+  amount, and below ~12 columns the row is dropped rather than squeezed. The server serves a snapshot cached for
+  60 seconds — at most one upstream request per minute, failures keep the last value — and only a manual refresh
+  (the desktop refresh button, the TUI menu's *Refresh*, both retry paths) forces a re-probe; the 10-second polls
+  never do. The desktop panel shows it as an account block below the usage table, with the granted/topped-up
+  split on hover (when the split is meaningful).
 - The usage ladder puts **money before words**: as the sidebar narrows, the cost survives longer than the wordy
   labels, and below the numeric floor the three usage rows collapse into one row that still carries a number
   instead of three bare labels.

@@ -122,10 +122,10 @@ test("the usage rows share one form and end on one column in every language", ()
       for (const line of rows.lines) assert.ok(!line.endsWith(" "), `${language} @${width}: trailing space`)
 
       // The balance row is not a usage row: it is as wide as its amount makes it,
-      // so the shared-column table starts after it.
+      // so the shared-column table ends before it.
       const withBalance = sidebarRows({ status: { ...STATUS, balance: BALANCE }, maxColumns: width, language })
-      const offset = withBalance.lines.length > rows.lines.length ? 1 : 0
-      const usage = withBalance.lines.slice(offset)
+      const usage =
+        withBalance.lines.length > rows.lines.length ? withBalance.lines.slice(0, -1) : withBalance.lines
       assert.ok(usage.length > 0, `${language} @${width}: the body keeps its usage rows`)
       assert.equal(
         new Set(usage.map((line) => textColumns(line))).size,
@@ -137,7 +137,7 @@ test("the usage rows share one form and end on one column in every language", ()
   }
 })
 
-test("the balance row appears as soon as it fits, and leads the body", () => {
+test("the balance row appears as soon as it fits, and closes the body", () => {
   // Every label is the same width here except English, which has a verbose form
   // first: the compact `Bal.` form is what a terminal sidebar sees.
   const today = { en: "Today", ja: "今日", "zh-CN": "今日" } as const
@@ -147,8 +147,8 @@ test("the balance row appears as soon as it fits, and leads the body", () => {
       const rows = sidebarRows({ status: { ...STATUS, balance: BALANCE }, maxColumns: width, language })
       if (rows.lines.length === 4) {
         firstWidth[language] = width
-        assert.match(rows.lines[0], /¥110\.00/u, `${language} @${width}: the balance amount`)
-        assert.ok(rows.lines[1]?.startsWith(today[language]), `${language} @${width}: usage follows the balance`)
+        assert.ok(rows.lines[0]?.startsWith(today[language]), `${language} @${width}: usage leads the body`)
+        assert.match(rows.lines[3], /¥110\.00/u, `${language} @${width}: the balance amount closes the body`)
         break
       }
     }

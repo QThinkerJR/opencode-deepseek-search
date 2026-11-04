@@ -568,7 +568,7 @@ test("an older server without counts still fits the sidebar", () => {
 
 // ---------- the account balance row ----------
 
-test("the balance row leads the body of both interactive states", () => {
+test("the balance row closes the body of both interactive states", () => {
   const cases: readonly (readonly [SearchStatus, "on" | "off", string])[] = [
     [{ ...STATUS, balance: BALANCE }, "on", "停用"],
     [{ ...STATUS, mode: "native", source: "config", patched: false, balance: BALANCE }, "off", "启用"],
@@ -578,11 +578,11 @@ test("the balance row leads the body of both interactive states", () => {
     assert.equal(rows.tone, tone)
     assert.ok(rows.action.includes(verb))
     assert.equal(rows.lines.length, 4, `balance plus three usage rows (${tone})`)
-    assert.equal(rows.lines[0], "余额 ¥110.00", "the balance is the first body row")
+    assert.equal(rows.lines[3], "余额 ¥110.00", "the balance is the last body row")
     assert.deepEqual(
-      rows.lines.slice(1).map((line) => line.slice(0, 2)),
+      rows.lines.slice(0, -1).map((line) => line.slice(0, 2)),
       ["今日", "本月", "累计"],
-      "the usage rows follow unchanged",
+      "the usage rows precede it unchanged",
     )
     assertRowsFit(rows, SIDEBAR_COLUMNS)
     assert.equal(cardRows(rows), 5, "four body rows still fit the card")
@@ -606,14 +606,14 @@ test("only a live takeover or native mode shows a balance row", () => {
 test("an unavailable balance is marked with a leading ! and keeps its amount", () => {
   const rows = rowsAt({ ...STATUS, balance: { ...BALANCE, isAvailable: false } }, SIDEBAR_COLUMNS)
   assert.equal(rows.lines.length, 4)
-  assert.equal(rows.lines[0], "!余额 ¥110.00", "the marker prefixes the localized label")
-  assert.match(rows.lines[0], /!\D+¥\d/u, "the marker is followed by the label, then the amount")
+  assert.equal(rows.lines[3], "!余额 ¥110.00", "the marker prefixes the localized label")
+  assert.match(rows.lines[3], /!\D+¥\d/u, "the marker is followed by the label, then the amount")
   assertRowsFit(rows, SIDEBAR_COLUMNS)
 })
 
 test("the ! marker costs one column, so it drops the row one column earlier", () => {
   const plain = rowsAt({ ...STATUS, balance: BALANCE }, BALANCE_COLUMNS)
-  assert.equal(plain.lines[0], "余额 ¥110.00")
+  assert.equal(plain.lines[3], "余额 ¥110.00")
   assert.equal(plain.lines.length, 4)
 
   const marked = rowsAt({ ...STATUS, balance: { ...BALANCE, isAvailable: false } }, BALANCE_COLUMNS)
@@ -643,10 +643,10 @@ test("the balance row keeps the action on the title row", () => {
 
 test("a USD balance renders the dollar sign the server reported", () => {
   const rows = rowsAt({ ...STATUS, balance: { ...BALANCE, currency: "USD", totalBalance: "57.30" } }, 40)
-  assert.equal(rows.lines[0], "余额 $57.30")
+  assert.equal(rows.lines[3], "余额 $57.30")
 })
 
 test("a server amount is shown verbatim, never re-rounded", () => {
   const rows = rowsAt({ ...STATUS, balance: { ...BALANCE, totalBalance: "0.00" } }, 40)
-  assert.equal(rows.lines[0], "余额 ¥0.00")
+  assert.equal(rows.lines[3], "余额 ¥0.00")
 })

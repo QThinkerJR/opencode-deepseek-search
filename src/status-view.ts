@@ -42,9 +42,9 @@ export interface SidebarRows {
   /** Whether a click on `action` really performs it (some states have no action). */
   readonly clickable: boolean
   /**
-   * Body rows: the optional balance row first, then the three usage rows (or
-   * the single collapsed usage row when not even the shortest fits), or the
-   * short error reason. A row starting with `!` is an unavailable balance; the
+   * Body rows: the three usage rows (or the single collapsed usage row when
+   * not even the shortest fits), or the short error reason, then the optional
+   * balance row last. A row starting with `!` is an unavailable balance; the
    * marker is a color directive for the renderer and never part of the copy.
    */
   readonly lines: readonly string[]
@@ -401,10 +401,11 @@ export function sidebarRows(input: SidebarInput): SidebarRows {
     status.balance !== undefined
       ? balanceRow(status.balance, maxColumns, language)
       : undefined
-  // The balance row leads the body: it is the number the user opens the card to
-  // check, and it must not be read as a period cost. It costs one body row, so
-  // the header must keep the action inline to stay within five rows.
-  const lines = balance === undefined ? usage : [balance, ...usage]
+  // The balance row closes the body: the three usage rows read as the receipt
+  // (what this machine spent) and the account truth lands under them (what is
+  // left to spend). It still costs one body row, so the header must keep the
+  // action inline to stay within five rows.
+  const lines = balance === undefined ? usage : [...usage, balance]
   const allowActionBelow = balance === undefined
 
   // No status yet: the body has no numbers to show, only the reason (or that

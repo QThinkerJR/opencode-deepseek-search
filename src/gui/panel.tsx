@@ -98,9 +98,9 @@ export function DeepSeekPanel(props: DeepSeekPanelProps): JSX.Element {
 
   /**
    * The account block mirrors the view model's own emit condition (enabled or
-   * native mode), so `rows().lines[0]` is the balance row exactly when this is
-   * defined and the usage table must skip it. The block renders from the
-   * structured payload, not from re-parsing the line.
+   * native mode), so `rows().lines` ends with the balance row exactly when
+   * this is defined and the usage table must stop before it. The block renders
+   * from the structured payload, not from re-parsing the line.
    */
   const balance = createMemo<BalanceStatus | undefined>(() => {
     const account = props.status?.balance
@@ -147,37 +147,7 @@ export function DeepSeekPanel(props: DeepSeekPanelProps): JSX.Element {
         )
       ) : (
         <dl style={{ margin: "16px 0 0", "border-top": `1px solid ${ink().rule}`, "border-bottom": `1px solid ${ink().rule}` }}>
-          {/* The account block leads the table: the balance is authoritative and
-              the usage rows below are local estimates, so they read as two
-              blocks separated by a little more air. */}
-          <Show when={balance()} keyed>
-            {(account) => {
-              const label = t(language(), "balance.label")
-              const tip = balanceTip(account, language())
-              const amount = (
-                <dd style={{
-                  margin: 0, "margin-left": "auto", "font-family": mono(), "font-size": "14px", "line-height": "1.55",
-                  "font-variant-numeric": "tabular-nums", "text-align": "right", "font-weight": 500, "flex-shrink": 0,
-                  color: account.isAvailable ? undefined : ink().warn,
-                }}>
-                  {CURRENCY_SYMBOL[account.currency] ?? ""}{account.totalBalance}
-                </dd>
-              )
-              return (
-                <div style={{ display: "flex", "align-items": "baseline", gap: "12px", padding: "4px 0 10px" }}>
-                  <dt style={{ "flex-shrink": 0, "font-size": "11px", "letter-spacing": /^[\x20-\x7E]+$/.test(label) ? "0.08em" : undefined, "line-height": "1.9", opacity: 0.62 }}>
-                    {label}
-                  </dt>
-                  {tip !== undefined ? (
-                    <ctx.ui.Tooltip value={tip} placement="bottom">{amount}</ctx.ui.Tooltip>
-                  ) : (
-                    amount
-                  )}
-                </div>
-              )
-            }}
-          </Show>
-          <For each={balance() !== undefined ? rows().lines.slice(1) : rows().lines}>
+          <For each={balance() !== undefined ? rows().lines.slice(0, -1) : rows().lines}>
             {(line, index) => {
               const parts = splitLine(line)
               return (
@@ -207,6 +177,36 @@ export function DeepSeekPanel(props: DeepSeekPanelProps): JSX.Element {
               )
             }}
           </For>
+          {/* The account block closes the table like a receipt: the usage rows
+              above are local estimates for this machine, the balance under them
+              is the authoritative amount still on the account. */}
+          <Show when={balance()} keyed>
+            {(account) => {
+              const label = t(language(), "balance.label")
+              const tip = balanceTip(account, language())
+              const amount = (
+                <dd style={{
+                  margin: 0, "margin-left": "auto", "font-family": mono(), "font-size": "14px", "line-height": "1.55",
+                  "font-variant-numeric": "tabular-nums", "text-align": "right", "font-weight": 500, "flex-shrink": 0,
+                  color: account.isAvailable ? undefined : ink().warn,
+                }}>
+                  {CURRENCY_SYMBOL[account.currency] ?? ""}{account.totalBalance}
+                </dd>
+              )
+              return (
+                <div style={{ display: "flex", "align-items": "baseline", gap: "12px", padding: "10px 0 4px", "border-top": `1px solid ${ink().rule}` }}>
+                  <dt style={{ "flex-shrink": 0, "font-size": "11px", "letter-spacing": /^[\x20-\x7E]+$/.test(label) ? "0.08em" : undefined, "line-height": "1.9", opacity: 0.62 }}>
+                    {label}
+                  </dt>
+                  {tip !== undefined ? (
+                    <ctx.ui.Tooltip value={tip} placement="bottom">{amount}</ctx.ui.Tooltip>
+                  ) : (
+                    amount
+                  )}
+                </div>
+              )
+            }}
+          </Show>
         </dl>
       )}
 
