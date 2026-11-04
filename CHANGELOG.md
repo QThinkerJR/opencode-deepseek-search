@@ -5,6 +5,23 @@ and the version numbers follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **Account balance in both sidebars**: the server probes `GET /user/balance` with the same API key and serves a
+  cached snapshot through the `status` RPC as an optional `balance` field — 60s TTL, at most one upstream request
+  per minute, failures keep the last snapshot, and the balance is absent until the first successful probe. The TUI
+  card leads its body with the balance (warning-colored when the account cannot pay, dropped below ~12 columns
+  instead of squeezed, shown only in the two states that point at the account); the desktop panel shows an account
+  block above the usage table with the granted/topped-up split on hover (shown only when both components are
+  non-zero). Manual refresh (the desktop refresh
+  button, the TUI dialog's *Refresh*, both retry paths) forces a re-probe; the 10-second polls never do.
+- **Sidebar display overhaul**: the usage ladders now put money before words (the cost survives to much narrower
+  widths in every language, and the old words-only rungs that outranked a cheaper money row are gone), below the
+  numeric floor the three usage rows collapse into one digit-carrying row instead of bare labels, the TUI body
+  gained three text tiers plus a 2-column indent on wider sidebars, the state word goes bold when the glyph is
+  dropped, and the desktop panel tightens its table typography (10px chunk gaps, trailing separators removed,
+  letter-spacing on Latin labels only, a 12px glyph cell, money chunks that never wrap away from their digits).
+
 ### Removed
 
 - `tools/switch-mode.ps1`, the terminal helper that rewrote `options.mode` in `opencode.jsonc`. The switch has lived in
