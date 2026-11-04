@@ -4,15 +4,20 @@ import type { JSX } from "solid-js"
 import { For, Show, createMemo, onCleanup, onMount } from "solid-js"
 import { usePlugin } from "@opencode/plugin/gui"
 import { t, type Key } from "../i18n/index.ts"
-import type { SearchStatus } from "../rpc.ts"
-import { sidebarRows, type SidebarRows } from "../status-view.ts"
+import type { BalanceStatus, Language, SearchStatus } from "../rpc.ts"
+import { CURRENCY_SYMBOL, sidebarRows, type SidebarRows } from "../status-view.ts"
 
 export interface DeepSeekPanelProps {
   readonly status: SearchStatus | undefined
   readonly error: string | undefined
   readonly busy: boolean
   readonly onToggle: () => void
-  readonly onRefresh: () => void
+  /**
+   * `force` re-probes the server's balance cache; only a user action (the
+   * refresh button) may set it. The 10s poll timer calls it bare, so the
+   * automatic path keeps sending `{}` and never bypasses the server TTL.
+   */
+  readonly onRefresh: (force?: boolean) => void
 }
 
 type Tone = SidebarRows["tone"]
@@ -67,6 +72,20 @@ function help(action: string, mono: string): JSX.Element {
   )
 }
 
+/**
+ * The balance tooltip carries the granted/topped-up split, because those are the
+ * two numbers behind the total. It is skipped when only one component is
+ * non-zero: there it would just restate the total. The currency code rides
+ * along only for USD, whose `$` needs no introduction.
+ */
+function balanceTip(balance: BalanceStatus, language: Language): string | undefined {
+  const hasGranted = Number.parseFloat(balance.grantedBalance) > 0
+  const hasTopped = Number.parseFloat(balance.toppedUpBalance) > 0
+  if (!hasGranted || !hasTopped) return undefined
+  const text = t(language, "balance.breakdown", { granted: balance.grantedBalance, topped: balance.toppedUpBalance })
+  return balance.currency === "USD" ? `${text} (USD)` : text
+}
+
 export function DeepSeekPanel(props: DeepSeekPanelProps): JSX.Element {
   const ctx = usePlugin()
   // The desktop plugin has no forced locale: the server resolves one and carries
@@ -76,6 +95,18 @@ export function DeepSeekPanel(props: DeepSeekPanelProps): JSX.Element {
   const rows = createMemo(() => sidebarRows({ status: props.status, error: props.error, maxColumns: Infinity, language: language() }))
   const ink = createMemo(() => INK[ctx.appearance.mode()])
   const mono = () => ctx.appearance.font("mono")
+
+  /**
+   * The account block mirrors the view model's own emit condition (enabled or
+   * native mode), so `rows().lines[0]` is the balance row exactly when this is
+   * defined and the usage table must skip it. The block renders from the
+   * structured payload, not from re-parsing the line.
+   */
+  const balance = createMemo<BalanceStatus | undefined>(() => {
+    const account = props.status?.balance
+    if (account === undefined || (rows().tone !== "on" && rows().tone !== "off")) return undefined
+    return account
+  })
 
   // Cross-half `changed` delivery is the one runtime behaviour this repo cannot
   // verify, so the panel rereads on its own timer while it is mounted — the same
@@ -94,14 +125,14 @@ export function DeepSeekPanel(props: DeepSeekPanelProps): JSX.Element {
       }}
     >
       <header style={{ display: "flex", "align-items": "flex-start", gap: "8px" }}>
-        <span aria-hidden="true" style={{ "flex-shrink": 0, "font-size": "10px", "line-height": "20px", "font-weight": 700, color: ink()[rows().tone] }}>
+        <span aria-hidden="true" style={{ "flex-shrink": 0, "font-size": "12px", "line-height": "20px", width: "12px", "text-align": "center", "font-weight": 700, color: ink()[rows().tone] }}>
           {GLYPH[rows().tone]}
         </span>
         <h2 aria-live="polite" style={{ flex: 1, "min-width": 0, margin: 0, "font-size": "13px", "font-weight": 600, "line-height": "20px", "overflow-wrap": "anywhere" }}>
           {headline(rows().title, ink()[rows().tone])}
         </h2>
         <ctx.ui.Tooltip value={t(language(), "panel.tooltip.refresh")} placement="bottom">
-          <ctx.ui.IconButton icon="refresh" label={t(language(), "panel.tooltip.refresh")} size="small" onClick={props.onRefresh} />
+          <ctx.ui.IconButton icon="refresh" label={t(language(), "panel.tooltip.refresh")} size="small" onClick={() => props.onRefresh(true)} />
         </ctx.ui.Tooltip>
       </header>
 
@@ -116,25 +147,60 @@ export function DeepSeekPanel(props: DeepSeekPanelProps): JSX.Element {
         )
       ) : (
         <dl style={{ margin: "16px 0 0", "border-top": `1px solid ${ink().rule}`, "border-bottom": `1px solid ${ink().rule}` }}>
-          <For each={rows().lines}>
+          {/* The account block leads the table: the balance is authoritative and
+              the usage rows below are local estimates, so they read as two
+              blocks separated by a little more air. */}
+          <Show when={balance()} keyed>
+            {(account) => {
+              const label = t(language(), "balance.label")
+              const tip = balanceTip(account, language())
+              const amount = (
+                <dd style={{
+                  margin: 0, "margin-left": "auto", "font-family": mono(), "font-size": "14px", "line-height": "1.55",
+                  "font-variant-numeric": "tabular-nums", "text-align": "right", "font-weight": 500, "flex-shrink": 0,
+                  color: account.isAvailable ? undefined : ink().warn,
+                }}>
+                  {CURRENCY_SYMBOL[account.currency] ?? ""}{account.totalBalance}
+                </dd>
+              )
+              return (
+                <div style={{ display: "flex", "align-items": "baseline", gap: "12px", padding: "4px 0 10px" }}>
+                  <dt style={{ "flex-shrink": 0, "font-size": "11px", "letter-spacing": /^[\x20-\x7E]+$/.test(label) ? "0.08em" : undefined, "line-height": "1.9", opacity: 0.62 }}>
+                    {label}
+                  </dt>
+                  {tip !== undefined ? (
+                    <ctx.ui.Tooltip value={tip} placement="bottom">{amount}</ctx.ui.Tooltip>
+                  ) : (
+                    amount
+                  )}
+                </div>
+              )
+            }}
+          </Show>
+          <For each={balance() !== undefined ? rows().lines.slice(1) : rows().lines}>
             {(line, index) => {
               const parts = splitLine(line)
               return (
                 <div style={{ display: "flex", "align-items": "baseline", gap: "12px", padding: "10px 0", "border-top": index() > 0 ? `1px solid ${ink().rule}` : undefined }}>
-                  <dt style={{ "flex-shrink": 0, "font-size": "11px", "letter-spacing": "0.08em", "line-height": "1.9", opacity: 0.62 }}>
+                  <dt style={{ "flex-shrink": 0, "font-size": "11px", "letter-spacing": /^[\x20-\x7E]+$/.test(parts.label) ? "0.08em" : undefined, "line-height": "1.9", opacity: 0.62 }}>
                     {parts.label}
                   </dt>
                   <dd style={{
                     margin: 0, "margin-left": "auto", "min-width": 0, display: "flex", "flex-wrap": "wrap", "justify-content": "flex-end",
-                    "column-gap": "6px", "row-gap": "2px", "font-family": mono(), "font-size": "13px", "line-height": "1.55",
+                    "column-gap": "10px", "row-gap": "2px", "font-family": mono(), "font-size": "13px", "line-height": "1.55",
                     "font-variant-numeric": "tabular-nums", "text-align": "right",
                   }}>
                     <For each={parts.chunks}>
-                      {(chunk, i) => (
-                        <span style={{ "min-width": 0, "overflow-wrap": "anywhere", "font-weight": chunk.startsWith("¥") ? 500 : 400, opacity: chunk.startsWith("¥") ? 1 : 0.8 }}>
-                          {chunk}{i() < parts.chunks.length - 1 ? " ·" : ""}
-                        </span>
-                      )}
+                      {(chunk) => {
+                        // A money chunk must never wrap apart from its digits, and
+                        // it is the only chunk that reads at full weight.
+                        const money = /^[¥$]/.test(chunk)
+                        return (
+                          <span style={{ "min-width": 0, "overflow-wrap": "anywhere", "font-weight": money ? 500 : 400, opacity: money ? 1 : 0.8, "flex-shrink": money ? 0 : undefined }}>
+                            {chunk}
+                          </span>
+                        )
+                      }}
                     </For>
                   </dd>
                 </div>

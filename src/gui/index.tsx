@@ -40,9 +40,14 @@ export default Plugin.define({
     // `status` takes a required first argument: plain JSON Schema degrades the
     // input type to `unknown`, and the host validates the payload against the
     // method's object schema, so an omitted input is rejected as invalid.
-    async function refresh() {
+    //
+    // `force` asks the server to re-probe the account balance instead of serving
+    // the cache; only the panel's refresh button spends that request. The
+    // `changed` event sends `{}` exactly — an older server rejects unknown input
+    // properties, so a stray `force: false` would break it.
+    async function refresh(force = false) {
       try {
-        const next = readStatus(await rpc.status({}))
+        const next = readStatus(await rpc.status(force ? { force: true } : {}))
         if (next) {
           setStatus(next)
           setError(undefined)
@@ -68,13 +73,14 @@ export default Plugin.define({
       }
     }
 
-    // Mirrors the TUI card: no status or a stale error rereads, otherwise
-    // switch. A missing key still allows releasing the takeover (the shared
-    // model hides the button only where there is genuinely nothing to do).
+    // Mirrors the TUI card: no status or a stale error rereads (a retry is a
+    // user action, so it also re-probes the balance), otherwise switch. A
+    // missing key still allows releasing the takeover (the shared model hides
+    // the button only where there is genuinely nothing to do).
     function toggle() {
       const current = status()
       if (!current || error()) {
-        void refresh()
+        void refresh(true)
         return
       }
       void applyMode(current.mode === "deepseek" ? "native" : "deepseek")
@@ -91,7 +97,7 @@ export default Plugin.define({
           error={error()}
           busy={busy()}
           onToggle={toggle}
-          onRefresh={() => void refresh()}
+          onRefresh={(force) => void refresh(force)}
         />
       ),
     })
