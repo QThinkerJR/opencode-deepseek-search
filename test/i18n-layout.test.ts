@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
 import { sidebarRows, textColumns, type SidebarRows } from "../src/status-view.ts"
-import type { Language, SearchStatus } from "../src/rpc.ts"
+import type { BalanceStatus, Language, SearchStatus } from "../src/rpc.ts"
 
 // The language matrix: every surface renders from the same `status.language`,
 // so each language must fit the measured sidebar on its own terms. The wording
@@ -33,8 +33,20 @@ const STATUS: SearchStatus = {
   counts: COUNTS,
 }
 
+/** A cached balance snapshot, in the shape the server sends it. */
+const BALANCE: BalanceStatus = {
+  isAvailable: true,
+  currency: "CNY",
+  totalBalance: "110.00",
+  grantedBalance: "0.00",
+  toppedUpBalance: "110.00",
+  fetchedAt: 1_700_000_000_000,
+}
+
 const VARIANTS: readonly { name: string; status: SearchStatus | undefined; error?: string }[] = [
   { name: "enabled", status: STATUS },
+  { name: "enabled+balance", status: { ...STATUS, balance: BALANCE } },
+  { name: "enabled+balance unavailable", status: { ...STATUS, balance: { ...BALANCE, isAvailable: false } } },
   { name: "disabled", status: { ...STATUS, mode: "native", source: "config", patched: false } },
   { name: "unpatched", status: { ...STATUS, patched: false } },
   { name: "missing key", status: { ...STATUS, hasKey: false } },
@@ -50,7 +62,12 @@ function headerColumns(rows: SidebarRows): number {
   return rows.actionBelow ? Math.max(title, action) : title + ACTION_GAP + action
 }
 
-function assertFits(rows: SidebarRows, width: number, label: string) {
+/**
+ * Structural checks for one rendered card. `digits` is on for every state that
+ * has a body of numbers: a usage row or a balance row without one would say
+ * nothing, and the ladder exists to make sure that never happens.
+ */
+function assertFits(rows: SidebarRows, width: number, label: string, digits = false) {
   assert.ok(headerColumns(rows) <= width, `${label} @${width}: header is ${headerColumns(rows)} cols`)
   assert.ok(textColumns(rows.action) <= width, `${label} @${width}: action is too wide`)
   if (rows.hint !== undefined) {
@@ -60,6 +77,17 @@ function assertFits(rows: SidebarRows, width: number, label: string) {
   for (const line of rows.lines) {
     assert.ok(line.length > 0, `${label} @${width}: a body row is never blank`)
     assert.ok(textColumns(line) <= width, `${label} @${width}: line is too wide: ${line}`)
+    if (digits) assert.match(line, /\d/u, `${label} @${width}: a body row carries a number: ${line}`)
+  }
+  // An amount never appears alone on a row that has company: the label is what
+  // makes the number mean something. (A collapsed body is a single row and legitimately
+  // just the total amount.)
+  const amounts = rows.lines.filter((line) => /[¥$]/u.test(line))
+  if (amounts.length >= 2) {
+    for (const line of amounts) {
+      const prefix = line.slice(0, line.search(/[¥$]/u))
+      assert.ok(/[^\d\s]/u.test(prefix), `${label} @${width}: amount without its label: ${line}`)
+    }
   }
   const height = 1 + (rows.actionBelow ? 1 : 0) + (rows.hint === undefined ? 0 : 1) + rows.lines.length
   assert.ok(height <= 5, `${label} @${width}: card is ${height} rows`)
@@ -75,7 +103,8 @@ test("every language fits every variant from the card floor to a wide sidebar", 
           maxColumns: width,
           language,
         })
-        assertFits(rows, width, `${language}/${variant.name}`)
+        // Only states with a body of numbers must keep a digit on every row.
+        assertFits(rows, width, `${language}/${variant.name}`, variant.status !== undefined)
       }
     }
   }
@@ -91,7 +120,57 @@ test("the usage rows share one form and end on one column in every language", ()
         `${language} @${width}: rows end on one column: ${rows.lines.join(" | ")}`,
       )
       for (const line of rows.lines) assert.ok(!line.endsWith(" "), `${language} @${width}: trailing space`)
+
+      // The balance row is not a usage row: it is as wide as its amount makes it,
+      // so the shared-column table starts after it.
+      const withBalance = sidebarRows({ status: { ...STATUS, balance: BALANCE }, maxColumns: width, language })
+      const offset = withBalance.lines.length > rows.lines.length ? 1 : 0
+      const usage = withBalance.lines.slice(offset)
+      assert.ok(usage.length > 0, `${language} @${width}: the body keeps its usage rows`)
+      assert.equal(
+        new Set(usage.map((line) => textColumns(line))).size,
+        1,
+        `${language} @${width}: usage rows end on one column: ${usage.join(" | ")}`,
+      )
+      for (const line of withBalance.lines) assert.ok(!line.endsWith(" "), `${language} @${width}: trailing space`)
     }
+  }
+})
+
+test("the balance row appears as soon as it fits, and leads the body", () => {
+  // Every label is the same width here except English, which has a verbose form
+  // first: the compact `Bal.` form is what a terminal sidebar sees.
+  const today = { en: "Today", ja: "今日", "zh-CN": "今日" } as const
+  const firstWidth: Record<string, number> = {}
+  for (const language of LOCALES) {
+    for (let width = CARD_FLOOR; width <= WIDE; width += 1) {
+      const rows = sidebarRows({ status: { ...STATUS, balance: BALANCE }, maxColumns: width, language })
+      if (rows.lines.length === 4) {
+        firstWidth[language] = width
+        assert.match(rows.lines[0], /¥110\.00/u, `${language} @${width}: the balance amount`)
+        assert.ok(rows.lines[1]?.startsWith(today[language]), `${language} @${width}: usage follows the balance`)
+        break
+      }
+    }
+  }
+  assert.deepEqual(firstWidth, { en: 12, ja: 12, "zh-CN": 12 })
+})
+
+test("only the states that point at the account show a balance row", () => {
+  const cases = [
+    { name: "unpatched", status: { ...STATUS, patched: false, balance: BALANCE }, lines: 3 },
+    { name: "missing key", status: { ...STATUS, hasKey: false, balance: BALANCE }, lines: 3 },
+    { name: "disabled", status: { ...STATUS, mode: "native" as const, source: "config" as const, patched: false, balance: BALANCE }, lines: 4 },
+  ]
+  for (const language of LOCALES) {
+    for (const item of cases) {
+      const rows = sidebarRows({ status: item.status, maxColumns: 40, language })
+      assert.equal(rows.lines.length, item.lines, `${language}/${item.name}: body height`)
+      const balanceRows = rows.lines.filter((line) => line.includes("110.00"))
+      assert.equal(balanceRows.length, item.lines === 4 ? 1 : 0, `${language}/${item.name}: balance rows`)
+    }
+    const failed = sidebarRows({ status: undefined, error: "rpc failed", maxColumns: 40, language })
+    assert.equal(failed.lines.length, 1, `${language}: an error shows its reason alone`)
   }
 })
 

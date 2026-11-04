@@ -83,6 +83,10 @@ export const ja = {
   "usage.label.total": "合計",
   "usage.summary.line": "検索 {search} · 取得 {fetch} · 空/失敗 {skipped} · {cost}",
 
+  // ---------- アカウント残高（カードの行とデスクトップのツールチップ） ----------
+  "balance.label": "残高",
+  "balance.breakdown": "付与 {granted} · チャージ {topped}",
+
   // ---------- エラー ----------
   "error.missingKey":
     "DeepSeek APIキーが未設定です。環境変数 DEEPSEEK_API_KEY を設定してください" +
@@ -118,16 +122,21 @@ export const ja = {
   "error.fetch.truncated": "[DeepSeek Fetch 切り詰め] 元の本文は {raw} 文字で、上限 {max} 文字を超えています。先頭 {max} 文字のみ保持しました。",
 } satisfies Messages
 
-/** 使用量行の階段：完全な行から最も短い行まで。各段は単体で完結する。 */
+/**
+ * 使用量行の階段：価値の高い順、同じ価値なら幅の広い順。各段は単体で完結する。
+ * 金額は語や回数より上位なので、金額を含まない「語だけ」の段は廃止した。金額だけの
+ * 行は件数を持たないため status-view.ts 側で組み立て、最後の 1 段の直前に試す。
+ */
 export const jaUsageForms: readonly string[] = [
   "{label}  Search {search}  Fetch {fetch}  {cost}",
   "{label} Search {search} Fetch {fetch} {cost}",
-  "{label}  Search {search}  Fetch {fetch}",
-  "{label} Search {search} Fetch {fetch}",
   "{label}  {search}S  {fetch}F  {cost}",
   "{label}  {search}S  {fetch}F",
-  "{label}  {search}S",
+  "{label} {search}S",
 ]
+
+/** 残高行の階段：完全な形が先。`{amount}` は通貨記号込み。 */
+export const jaBalanceForms: readonly string[] = ["残高 {amount}"]
 
 /** APIキー未設定のヒント階段：最後の段でも何を設定するかは残る。 */
 export const jaHintForms: readonly string[] = [

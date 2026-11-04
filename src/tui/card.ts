@@ -9,6 +9,10 @@ import type { SidebarRows } from "../status-view.ts"
 
 /** A measured width under this cannot show even the usage label; treat it as unmeasured. */
 const MIN_CARD_COLUMNS = 8
+/** Body rows are inset this far from the title, so the card reads as one block. */
+const INDENT = "  "
+/** Under this many columns the indent costs more than it explains. */
+const INDENT_MIN_COLUMNS = 16
 
 /**
  * Columns the card may use. Before the first layout pass the host reports 0 (or
@@ -69,6 +73,40 @@ function element(tag: string, props: Props | undefined, children: readonly Child
   return node
 }
 
+/** The amount at the end of a row, e.g. `¥0.015` / `$6.17`; it gets its own color. */
+const MONEY_TAIL = /([¥$][\d.,]+)$/u
+
+/**
+ * One body row split into the three tiers the card colors. The view model emits
+ * plain strings — one row per line, deliberately not structured — so the row is
+ * split here: the leading label reads faint, the counters in the middle muted,
+ * and the amount at the end is the number the user came for, so it gets full
+ * contrast.
+ */
+interface BodyParts {
+  readonly label: string
+  readonly middle: string
+  readonly amount: string
+  /** The row starts with `!`: the balance could not be read. */
+  readonly unavailable: boolean
+}
+
+function bodyParts(line: string): BodyParts {
+  // `!` is the only unavailable marker in the row text and is consumed here as a
+  // color directive: it is never drawn. The label and the amount still are.
+  const unavailable = line.startsWith("!")
+  const text = unavailable ? line.slice(1) : line
+  const amount = MONEY_TAIL.exec(text)?.[1] ?? ""
+  const head = amount === "" ? text : text.slice(0, text.length - amount.length)
+  const gap = head.indexOf(" ")
+  return {
+    label: gap < 0 ? head : head.slice(0, gap),
+    middle: gap < 0 ? "" : head.slice(gap),
+    amount,
+    unavailable,
+  }
+}
+
 export function sidebarCard(input: {
   readonly status: SearchStatus | undefined
   readonly error: string | undefined
@@ -85,10 +123,14 @@ export function sidebarCard(input: {
 }): JSX.Element {
   // The terminal sidebar is the surface this ladder is tuned for: the measured
   // width, not a guessed constant, decides whether the words fit.
+  const columns = cardColumns(input.maxColumns)
+  // The indent is part of the drawn row, so it is subtracted from the budget the
+  // model composes against: every row still ends inside the measured width.
+  const indent = columns >= INDENT_MIN_COLUMNS ? INDENT : ""
   const rows = sidebarRows({
     status: input.status,
     error: input.error,
-    maxColumns: cardColumns(input.maxColumns),
+    maxColumns: columns - indent.length,
     language: input.language,
   })
   const theme = input.theme
@@ -108,14 +150,18 @@ export function sidebarCard(input: {
   //
   // The state word carries the tone color, so a narrow sidebar that has to drop
   // the glyph still shows the state at a glance (the desktop panel does the same).
+  // When the glyph is gone the word also goes bold — the emphasis has to live
+  // somewhere. Bold rides in `style`, because the reconciler ignores an
+  // `attributes` prop on text nodes and only maps `style` (fg/bg/attributes).
+  const stateStyle = rows.glyph ? { fg: state } : { fg: state, bold: true }
   const separator = rows.title.indexOf(" · ")
   const titleSpans: Child[] =
     separator < 0
-      ? [element("span", { style: { fg: state } }, [rows.title])]
+      ? [element("span", { style: stateStyle }, [rows.title])]
       : [
           element("span", { style: { fg: theme.text.base } }, [rows.title.slice(0, separator)]),
           element("span", { style: { fg: theme.text.faint } }, [" · "]),
-          element("span", { style: { fg: state } }, [rows.title.slice(separator + 3)]),
+          element("span", { style: stateStyle }, [rows.title.slice(separator + 3)]),
         ]
   if (rows.glyph) {
     titleSpans.unshift(element("span", { style: { fg: state } }, [`${GLYPH[rows.tone]} `]))
@@ -157,11 +203,28 @@ export function sidebarCard(input: {
           [action],
         )
 
-  // The model already composed every row to fit the sidebar, so each body row
-  // is one text node: the host must never get the chance to wrap it.
-  const body = rows.lines.map((line) =>
-    element("text", { content: line, fg: theme.text.muted, wrapMode: "none", width: "100%" }),
-  )
+  // The model already composed every row to fit the sidebar, so each body row is
+  // one text node: the host must never get the chance to wrap it. The row's own
+  // text is split into colored spans, so the label, the counters and the amount
+  // each read at their own weight without a second row or a box per line.
+  const body = rows.lines.map((line) => {
+    const parts = bodyParts(line)
+    const spans: Child[] = []
+    if (indent !== "") spans.push(element("span", { style: { fg: theme.text.faint } }, [indent]))
+    if (parts.label !== "") {
+      spans.push(element("span", { style: { fg: theme.text.faint } }, [parts.label]))
+    }
+    if (parts.middle !== "") {
+      spans.push(element("span", { style: { fg: theme.text.muted } }, [parts.middle]))
+    }
+    if (parts.amount !== "") {
+      // An unavailable balance is the one thing on the card that must not look
+      // like an ordinary amount: it is the reason the next call will fail.
+      const fg = parts.unavailable ? theme.text.feedback.warning.base : theme.text.base
+      spans.push(element("span", { style: { fg } }, [parts.amount]))
+    }
+    return element("text", { selectable: false, wrapMode: "none", width: "100%" }, spans)
+  })
   // A missing key has no action, so the fix hint gets the row right under the
   // title. It is plain text: there is nothing to click.
   const hint =

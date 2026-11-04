@@ -1,7 +1,7 @@
 // Pure view model for the sidebar card. No renderer, no runtime dependency:
 // the card and the tests both derive their text from here.
 import { format, pack, t } from "./i18n/index.ts"
-import type { SearchStatus, UsageCounts, Language } from "./rpc.ts"
+import type { BalanceStatus, SearchStatus, UsageCounts, Language } from "./rpc.ts"
 
 export interface SidebarInput {
   readonly status: SearchStatus | undefined
@@ -41,7 +41,12 @@ export interface SidebarRows {
   readonly hint: string | undefined
   /** Whether a click on `action` really performs it (some states have no action). */
   readonly clickable: boolean
-  /** Body rows: the three usage rows, or the short error reason. */
+  /**
+   * Body rows: the optional balance row first, then the three usage rows (or
+   * the single collapsed usage row when not even the shortest fits), or the
+   * short error reason. A row starting with `!` is an unavailable balance; the
+   * marker is a color directive for the renderer and never part of the copy.
+   */
   readonly lines: readonly string[]
   /** Drives the state color in card.ts. */
   readonly tone: "on" | "off" | "warn" | "error" | "idle"
@@ -150,10 +155,12 @@ function usageLayout(counts: Counts): UsageLayout {
 
 /**
  * One usage row, e.g. `今日  Search 0  Fetch 3  ¥0.015` when the surface is
- * wide, otherwise shorter forms down to `今日`. The ladder is per language:
- * each locale owns the shapes that read well at its widths, so no language is
- * squeezed into another one's budget. Counts are right-aligned in their shared
- * width and every row picks the same form, so the three rows read as a table.
+ * wide, otherwise shorter forms down to the amount or the search count alone.
+ * The ladder is per language: each locale owns the shapes that read well at its
+ * widths, so no language is squeezed into another one's budget. Counts are
+ * right-aligned in their shared width and every row picks the same form, so the
+ * three rows read as a table. `undefined` means not even the shortest rung fits;
+ * the caller then collapses the three rows instead of emitting blanks.
  */
 function compactUsageRow(
   period: Period,
@@ -161,19 +168,105 @@ function compactUsageRow(
   layout: UsageLayout,
   maxColumns: number,
   language: Language,
-): string {
+): string | undefined {
   const label = t(language, LABEL_KEY[period])
   const search = String(counts.search).padStart(layout.search, " ")
   const fetch = String(counts.fetch).padStart(layout.fetch, " ")
   const cost = money(counts.costMicro).padStart(layout.cost, " ")
   const params = { label, search, fetch, cost }
+  const forms = pack(language).usageForms
   // Each candidate is a complete row, so nothing is ever left dangling and no
   // number is ever cut from its unit.
-  for (const form of pack(language).usageForms) {
+  for (const form of forms.slice(0, -1)) {
     const row = format(form, params)
     if (textColumns(row) <= maxColumns) return row
   }
-  return textColumns(label) <= maxColumns ? label : clip(label, maxColumns)
+  // The amount alone outranks the ladder's last rung, a lone search count: money
+  // is what this card is for, and a single counter is not. The row is composed
+  // here because it carries no count, so it is not a locale ladder entry — the
+  // label still comes from the locale table.
+  const amountRow = `${label} ${cost}`
+  if (textColumns(amountRow) <= maxColumns) return amountRow
+  const narrowest = forms[forms.length - 1]
+  if (narrowest !== undefined) {
+    const row = format(narrowest, params)
+    if (textColumns(row) <= maxColumns) return row
+  }
+  return undefined
+}
+
+/**
+ * Below the shortest rung no usage row can carry a number, so the three rows
+ * become one that still does: the total cost first (the number this card is
+ * opened for), then the total search count, then the bare amount, which fits
+ * the card floor on its own. A label with no number behind it is a row of noise
+ * and is never emitted.
+ */
+function collapseUsageRow(counts: UsageCounts, layout: UsageLayout, maxColumns: number, language: Language): string {
+  const label = t(language, LABEL_KEY.total)
+  const cost = money(counts.costMicro)
+  const candidates = [
+    `${label} ${cost.padStart(layout.cost, " ")}`,
+    `${label} ${String(counts.search).padStart(layout.search, " ")}S`,
+    cost,
+  ]
+  for (const row of candidates) {
+    if (textColumns(row) <= maxColumns) return row
+  }
+  // Nothing unclipped fits: only a clipped amount is left, and it still shows a
+  // digit as far as the columns allow.
+  return clip(cost, maxColumns)
+}
+
+function usageLines(status: SearchStatus, maxColumns: number, language: Language): readonly string[] {
+  // The desktop panel lays the original verbose copy out as ` · ` chunks of its
+  // own table; only the terminal needs the compact form.
+  if (maxColumns === Number.POSITIVE_INFINITY) {
+    return [
+      `${t(language, "usage.label.today")} ${status.today}`,
+      `${t(language, "usage.label.month")} ${status.month}`,
+      `${t(language, "usage.label.total")} ${status.total}`,
+    ]
+  }
+  const counts = status.counts
+  if (counts) {
+    const layout = usageLayout(counts)
+    const rows: string[] = []
+    for (const period of PERIODS) {
+      const row = compactUsageRow(period, counts[period], layout, maxColumns, language)
+      // All three rows share their padded widths, so they either all fit or none
+      // does; the first miss is enough to collapse rather than half a table.
+      if (row === undefined) return [collapseUsageRow(counts.total, layout, maxColumns, language)]
+      rows.push(row)
+    }
+    return rows
+  }
+  return PERIODS.map((period) => legacyUsageRow(period, status[period], maxColumns, language))
+}
+
+// The server normalizes `currency` to one of these codes, so the symbol is a
+// lookup rather than a formatting library. An unknown code contributes nothing
+// instead of a wrong symbol. The desktop panel reuses it for its account block.
+export const CURRENCY_SYMBOL: Readonly<Record<string, string>> = { CNY: "¥", USD: "$" }
+
+/**
+ * The account-balance row, or `undefined` when it does not fit. The amount is
+ * the server's string verbatim (`110.00`), never re-rounded: DeepSeek's account
+ * balance is authoritative and this row only mirrors it.
+ *
+ * `!` marks an unavailable balance and costs one column; it is the only marker,
+ * so the renderer can turn it into a color and every other consumer keeps a
+ * plain string. The row is never compressed into another one: below its width it
+ * is dropped, because half an amount is worse than no amount.
+ */
+function balanceRow(balance: BalanceStatus, maxColumns: number, language: Language): string | undefined {
+  const marker = balance.isAvailable ? "" : "!"
+  const amount = `${CURRENCY_SYMBOL[balance.currency] ?? ""}${balance.totalBalance}`
+  for (const form of pack(language).balanceForms) {
+    const row = `${marker}${format(form, { amount })}`
+    if (textColumns(row) <= maxColumns) return row
+  }
+  return undefined
 }
 
 /**
@@ -197,24 +290,6 @@ function legacyUsageRow(period: Period, text: string, maxColumns: number, langua
     if (textColumns(row) <= maxColumns) return row
   }
   return clip(label, maxColumns)
-}
-
-function usageLines(status: SearchStatus, maxColumns: number, language: Language): readonly string[] {
-  // The desktop panel lays the original verbose copy out as ` · ` chunks of its
-  // own table; only the terminal needs the compact form.
-  if (maxColumns === Number.POSITIVE_INFINITY) {
-    return [
-      `${t(language, "usage.label.today")} ${status.today}`,
-      `${t(language, "usage.label.month")} ${status.month}`,
-      `${t(language, "usage.label.total")} ${status.total}`,
-    ]
-  }
-  const counts = status.counts
-  if (counts) {
-    const layout = usageLayout(counts)
-    return PERIODS.map((period) => compactUsageRow(period, counts[period], layout, maxColumns, language))
-  }
-  return PERIODS.map((period) => legacyUsageRow(period, status[period], maxColumns, language))
 }
 
 /**
@@ -243,12 +318,17 @@ interface TitleFit {
  * and the title keeps the full width, and only then do the product name and the
  * wordy state shrink. Within one wording the glyph is the first thing to go,
  * because it costs two columns and the state word is right beside it.
+ *
+ * `allowActionBelow` is false on a card whose body is already full: giving the
+ * action its own row would push the card past its height budget, so the title
+ * shrinks instead — the action row always wins, because it is the only control.
  */
 function fitTitle(
   state: string,
   shortState: string,
   maxColumns: number,
   actionColumns: number | undefined,
+  allowActionBelow = true,
 ): TitleFit {
   const budget = (glyph: boolean, actionBelow: boolean): number => {
     if (maxColumns === Number.POSITIVE_INFINITY) return Number.POSITIVE_INFINITY
@@ -265,7 +345,7 @@ function fitTitle(
   ]
   // Inline first, then the action below it; a wording is never traded for a
   // shorter one that happens to fit inline, because the wording is the point.
-  const placements = actionColumns === undefined ? [false] : [false, true]
+  const placements = actionColumns === undefined || !allowActionBelow ? [false] : [false, true]
   for (const candidate of candidates) {
     for (const actionBelow of placements) {
       for (const glyph of [true, false]) {
@@ -276,8 +356,9 @@ function fitTitle(
     }
   }
   // Nothing fits whole at a pathological width: clip the state and give the
-  // action its own row so the hit area never disappears.
-  const actionBelow = actionColumns !== undefined
+  // action its own row so the hit area never disappears — unless the body has
+  // already spent that row, in which case the clipped title shares the width.
+  const actionBelow = allowActionBelow && actionColumns !== undefined
   return { title: clip(shortState, budget(false, actionBelow)), glyph: false, actionBelow }
 }
 
@@ -296,15 +377,35 @@ interface ActionRows extends TitleFit {
 }
 
 /** Fit the action first: the title can only use the columns it leaves over. */
-function actionRows(state: string, shortState: string, verb: string, maxColumns: number): ActionRows {
+function actionRows(
+  state: string,
+  shortState: string,
+  verb: string,
+  maxColumns: number,
+  allowActionBelow = true,
+): ActionRows {
   const action = fitAction(verb, maxColumns)
-  return { ...fitTitle(state, shortState, maxColumns, textColumns(action)), action }
+  return { ...fitTitle(state, shortState, maxColumns, textColumns(action), allowActionBelow), action }
 }
 
 export function sidebarRows(input: SidebarInput): SidebarRows {
   const { status, error, language } = input
   const maxColumns = input.maxColumns ?? DEFAULT_COLUMNS
-  const lines = status === undefined ? [] : usageLines(status, maxColumns, language)
+  const usage = status === undefined ? [] : usageLines(status, maxColumns, language)
+  // Only the two states that really point at the account show it: an enabled
+  // takeover or an explicit native mode. A state where nothing is taken over, a
+  // missing key, or a failed read leaves the body to usage and the error reason.
+  const balance =
+    status !== undefined &&
+    ((status.patched && status.hasKey) || status.mode === "native") &&
+    status.balance !== undefined
+      ? balanceRow(status.balance, maxColumns, language)
+      : undefined
+  // The balance row leads the body: it is the number the user opens the card to
+  // check, and it must not be read as a period cost. It costs one body row, so
+  // the header must keep the action inline to stay within five rows.
+  const lines = balance === undefined ? usage : [balance, ...usage]
+  const allowActionBelow = balance === undefined
 
   // No status yet: the body has no numbers to show, only the reason (or that
   // the first read is still in flight).
@@ -329,7 +430,13 @@ export function sidebarRows(input: SidebarInput): SidebarRows {
 
   if (status.patched && status.hasKey) {
     return {
-      ...actionRows(t(language, "state.enabled"), t(language, "state.enabledShort"), t(language, "action.disable"), maxColumns),
+      ...actionRows(
+        t(language, "state.enabled"),
+        t(language, "state.enabledShort"),
+        t(language, "action.disable"),
+        maxColumns,
+        allowActionBelow,
+      ),
       hint: undefined,
       clickable: true,
       lines,
@@ -345,6 +452,7 @@ export function sidebarRows(input: SidebarInput): SidebarRows {
         t(language, "state.unpatchedShort"),
         t(language, "action.release"),
         maxColumns,
+        allowActionBelow,
       ),
       hint: undefined,
       clickable: true,
@@ -354,7 +462,13 @@ export function sidebarRows(input: SidebarInput): SidebarRows {
   }
   if (status.mode === "native") {
     return {
-      ...actionRows(t(language, "state.disabled"), t(language, "state.disabledShort"), t(language, "action.enable"), maxColumns),
+      ...actionRows(
+        t(language, "state.disabled"),
+        t(language, "state.disabledShort"),
+        t(language, "action.enable"),
+        maxColumns,
+        allowActionBelow,
+      ),
       hint: undefined,
       clickable: true,
       lines,

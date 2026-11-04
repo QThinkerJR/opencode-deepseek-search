@@ -3,7 +3,7 @@ import { test } from "node:test"
 import { sidebarRows, textColumns } from "../src/status-view.ts"
 import type { SidebarRows } from "../src/status-view.ts"
 import { cardColumns } from "../src/tui/card.ts"
-import type { Language, SearchStatus } from "../src/rpc.ts"
+import type { BalanceStatus, Language, SearchStatus } from "../src/rpc.ts"
 
 // The copy is the user's: `Search` and `Fetch` are words, and the abbreviations
 // are only a last resort. These tests lock that ladder, the measured widths,
@@ -40,6 +40,20 @@ const STATUS: SearchStatus = {
 
 // This file locks the Chinese ladder: the wording below is zh-CN, and the
 // language matrix lives in test/i18n-layout.test.ts.
+
+/** A cached balance snapshot, in the shape the server sends it. */
+const BALANCE: BalanceStatus = {
+  isAvailable: true,
+  currency: "CNY",
+  totalBalance: "110.00",
+  grantedBalance: "0.00",
+  toppedUpBalance: "110.00",
+  fetchedAt: 1_700_000_000_000,
+}
+
+// The widest a balance row gets here: `余额 ¥110.00` is 12 columns.
+const BALANCE_COLUMNS = 12
+
 function rowsAt(
   status: SearchStatus | undefined,
   maxColumns = SIDEBAR_COLUMNS,
@@ -186,6 +200,7 @@ test("before the first read the card is idle", () => {
 test("the card never exceeds five rows", () => {
   const cases: readonly (readonly [string, SearchStatus | undefined, string | undefined])[] = [
     ["on", STATUS, undefined],
+    ["on with balance", { ...STATUS, balance: BALANCE }, undefined],
     ["off", { ...STATUS, mode: "native", source: "config", patched: false }, undefined],
     ["warn", { ...STATUS, patched: false }, undefined],
     ["no key", { ...STATUS, hasKey: false }, undefined],
@@ -307,7 +322,9 @@ test("below the title ladder only the state is left", () => {
 
 // The acceptance table: each width renders the first wording that fits. The
 // padded amount is why the month and total rows carry three spaces before
-// `¥0.04`: all three rows end on the same column.
+// `¥0.04`: all three rows end on the same column. The order is by value:
+// words+amount, then short units+amount, then the counters, then the amount
+// alone, then a lone search count.
 const LADDER: readonly (readonly [number, readonly string[]])[] = [
   [
     SIDEBAR_COLUMNS,
@@ -334,47 +351,68 @@ const LADDER: readonly (readonly [number, readonly string[]])[] = [
     ],
   ],
   [28, ["今日 Search 0 Fetch 3 ¥0.015", "本月 Search 5 Fetch 3  ¥0.04", "累计 Search 5 Fetch 3  ¥0.04"]],
-  [26, ["今日  Search 0  Fetch 3", "本月  Search 5  Fetch 3", "累计  Search 5  Fetch 3"]],
-  [22, ["今日 Search 0 Fetch 3", "本月 Search 5 Fetch 3", "累计 Search 5 Fetch 3"]],
+  // Below 28 the words no longer fit, but the amount stays: it outranks them.
+  [26, ["今日  0S  3F  ¥0.015", "本月  5S  3F   ¥0.04", "累计  5S  3F   ¥0.04"]],
+  [22, ["今日  0S  3F  ¥0.015", "本月  5S  3F   ¥0.04", "累计  5S  3F   ¥0.04"]],
   [18, ["今日  0S  3F", "本月  5S  3F", "累计  5S  3F"]],
+  [12, ["今日  0S  3F", "本月  5S  3F", "累计  5S  3F"]],
+  // The amount comes back once it is the only number that still fits.
+  [11, ["今日 ¥0.015", "本月  ¥0.04", "累计  ¥0.04"]],
+  [8, ["今日 0S", "本月 5S", "累计 5S"]],
 ]
 
-test("the wording ladder keeps the words and drops the amount first", () => {
+test("the wording ladder keeps the most valuable row at every width", () => {
   for (const [width, expected] of LADDER) {
     assert.deepEqual(rowsAt(STATUS, width).lines, expected, `rows at ${width} columns`)
     for (const line of expected) assert.ok(textColumns(line) <= width, `${width}: ${line}`)
   }
 })
 
-test("the amount goes before the words are abbreviated", () => {
-  // The words alone need 23 columns; the short units need 20 with the amount.
-  const wordsOnly = rowsAt(STATUS, 23)
-  for (const line of wordsOnly.lines) {
-    assert.ok(line.includes("Search") && line.includes("Fetch"), `words at 23: ${line}`)
-    assert.ok(!line.includes("¥"), `amount dropped at 23: ${line}`)
-    assert.ok(!line.includes("0S"), `no abbreviation while the words fit: ${line}`)
+test("the amount outranks the words and the counters", () => {
+  // The words plus the amount need 28 columns. The old ladder answered that with
+  // a wider words-only row; the amount is why the card is opened, so it stays
+  // and the wording shrinks instead.
+  for (const line of rowsAt(STATUS, 26).lines) {
+    assert.ok(!line.includes("Search") && !line.includes("Fetch"), `words are gone at 26: ${line}`)
+    assert.ok(line.includes("¥"), `the amount survives at 26: ${line}`)
+    assert.match(line, /\d+S/, `the counters survive at 26: ${line}`)
   }
-
-  const short = rowsAt(STATUS, 20)
-  for (const line of short.lines) {
-    assert.ok(!line.includes("Search") && !line.includes("Fetch"), `abbreviated at 20: ${line}`)
-    assert.ok(line.includes("¥"), `amount kept once the words are gone: ${line}`)
+  // Under the short-units rung the counters are the only numbers left; the
+  // amount returns below that, alone, because a card with no number is useless.
+  const counters = rowsAt(STATUS, 17)
+  for (const line of counters.lines) {
+    assert.match(line, /\d+S/, `counters at 17: ${line}`)
+    assert.ok(!line.includes("¥"), `no amount at 17: ${line}`)
+  }
+  const amount = rowsAt(STATUS, 11)
+  for (const line of amount.lines) {
+    assert.ok(line.includes("¥"), `the amount at 11: ${line}`)
+    assert.ok(!line.includes("Search") && !line.includes("S"), `no counters at 11: ${line}`)
   }
 })
 
 /** Which rung of the ladder a rendered row sits on. */
-type Shape = "words+amount" | "words" | "short+amount" | "short" | "short-search" | "label"
+type Shape =
+  | "words+amount"
+  | "short+amount"
+  | "short"
+  | "label+search"
+  | "label+amount"
+  | "amount"
 
 function shapeOf(line: string): Shape {
   if (line.includes("Search")) {
     assert.ok(line.includes("Fetch"), `Search never appears without Fetch: ${line}`)
-    return line.includes("¥") ? "words+amount" : "words"
+    // The amount is never traded for the words: the richer rung always has both.
+    assert.ok(line.includes("¥"), `the words always come with the amount: ${line}`)
+    return "words+amount"
   }
   if (/\dS/.test(line)) {
-    if (!/\dF/.test(line)) return "short-search"
+    if (!/\dF/.test(line)) return "label+search"
     return line.includes("¥") ? "short+amount" : "short"
   }
-  return "label"
+  if (/[¥$]/.test(line)) return line.trimStart().startsWith("¥") ? "amount" : "label+amount"
+  assert.fail(`a body row always carries a number or an amount: ${line}`)
 }
 
 test("every width from the card floor up stays inside the budget and aligned", () => {
@@ -390,7 +428,7 @@ test("every width from the card floor up stays inside the budget and aligned", (
       if (line.includes("¥")) {
         assert.match(line, /¥\d+\.\d{2,3}$/, `${width}: amount is bare currency: ${line}`)
       }
-      if (shape === "words+amount" || shape === "words") {
+      if (shape === "words+amount") {
         assert.match(line, /Search \d+|Fetch \d+/, `${width}: words keep numbers: ${line}`)
       }
       if (shape === "short+amount" || shape === "short") {
@@ -400,11 +438,13 @@ test("every width from the card floor up stays inside the budget and aligned", (
     }
     // The unit column and the number column are shared by all three rows.
     const markers =
-      shape === "words+amount" || shape === "words"
+      shape === "words+amount"
         ? ["Search", "Fetch"]
-        : shape === "short-search"
-          ? ["S"]
-          : ["S", "F"]
+        : shape === "short+amount" || shape === "short"
+          ? ["S", "F"]
+          : shape === "label+search"
+            ? ["S"]
+            : []
     for (const marker of markers) {
       if (!rows.lines[0].includes(marker)) continue
       assert.equal(
@@ -467,7 +507,7 @@ test("oversized numbers keep their unit instead of being cut", () => {
   )
   for (const line of wide.lines) {
     assert.ok(!line.includes("…"), `numbers are never clipped: ${line}`)
-    assert.ok(shapeOf(line) !== "label", `a count still shows: ${line}`)
+    assert.ok(/[¥$]/.test(line), `the amount still shows: ${line}`)
     if (/\d\s*[SF]/.test(line)) {
       assert.match(line, /\d+\s*[SF]/, `every unit keeps its number: ${line}`)
     }
@@ -475,15 +515,21 @@ test("oversized numbers keep their unit instead of being cut", () => {
   assertRowsFit(wide)
 })
 
-test("below the card floor the label is the last thing to go", () => {
-  for (const width of [7, 6, 5]) {
+test("below the shortest rung the three rows collapse into one numbered row", () => {
+  // Seven columns is the narrowest complete usage row here (`今日 0S`); under it
+  // no row can carry a number, and three rows without one would say nothing.
+  assert.deepEqual(rowsAt(STATUS, 7).lines, ["今日 0S", "本月 5S", "累计 5S"])
+
+  for (const width of [6, 5]) {
     const rows = rowsAt(STATUS, width)
-    assert.deepEqual(rows.lines, ["今日", "本月", "累计"], `labels only at ${width}`)
+    assert.deepEqual(rows.lines, ["¥0.04"], `the total amount alone at ${width}`)
     assertRowsFit(rows, width)
   }
-  const clipped = rowsAt(STATUS, 3)
-  assert.equal(clipped.lines[0], "今…", "the label itself is clipped when nothing fits")
-  assert.equal(textColumns(clipped.lines[0]), 3)
+  // Even a clipped amount keeps a digit: the row is never a bare label.
+  const clipped = rowsAt(STATUS, 4)
+  assert.equal(clipped.lines.length, 1, "one body row, not three")
+  assert.ok(textColumns(clipped.lines[0]) <= 4, `the collapsed row fits: ${clipped.lines[0]}`)
+  assert.ok(clipped.lines[0].startsWith("¥"), `the amount is what survives: ${clipped.lines[0]}`)
 })
 
 test("the card ignores a width it cannot use and keeps the narrow budget", () => {
@@ -518,4 +564,89 @@ test("an older server without counts still fits the sidebar", () => {
       new Set(["今日", "本月", "累计"]),
     )
   }
+})
+
+// ---------- the account balance row ----------
+
+test("the balance row leads the body of both interactive states", () => {
+  const cases: readonly (readonly [SearchStatus, "on" | "off", string])[] = [
+    [{ ...STATUS, balance: BALANCE }, "on", "停用"],
+    [{ ...STATUS, mode: "native", source: "config", patched: false, balance: BALANCE }, "off", "启用"],
+  ]
+  for (const [status, tone, verb] of cases) {
+    const rows = rowsAt(status, SIDEBAR_COLUMNS)
+    assert.equal(rows.tone, tone)
+    assert.ok(rows.action.includes(verb))
+    assert.equal(rows.lines.length, 4, `balance plus three usage rows (${tone})`)
+    assert.equal(rows.lines[0], "余额 ¥110.00", "the balance is the first body row")
+    assert.deepEqual(
+      rows.lines.slice(1).map((line) => line.slice(0, 2)),
+      ["今日", "本月", "累计"],
+      "the usage rows follow unchanged",
+    )
+    assertRowsFit(rows, SIDEBAR_COLUMNS)
+    assert.equal(cardRows(rows), 5, "four body rows still fit the card")
+  }
+})
+
+test("only a live takeover or native mode shows a balance row", () => {
+  // Nothing is being taken over here, so the account is not the card's business.
+  for (const status of [
+    { ...STATUS, patched: false, balance: BALANCE },
+    { ...STATUS, hasKey: false, balance: BALANCE },
+  ]) {
+    const rows = rowsAt(status, SIDEBAR_COLUMNS)
+    assert.equal(rows.lines.length, 3, "usage rows only")
+    for (const line of rows.lines) assert.ok(!line.includes("余额"), `no balance row: ${line}`)
+  }
+  const failed = rowsAt(undefined, SIDEBAR_COLUMNS, "RPC 不可用")
+  assert.equal(failed.lines.length, 1, "an error keeps its single reason row")
+})
+
+test("an unavailable balance is marked with a leading ! and keeps its amount", () => {
+  const rows = rowsAt({ ...STATUS, balance: { ...BALANCE, isAvailable: false } }, SIDEBAR_COLUMNS)
+  assert.equal(rows.lines.length, 4)
+  assert.equal(rows.lines[0], "!余额 ¥110.00", "the marker prefixes the localized label")
+  assert.match(rows.lines[0], /!\D+¥\d/u, "the marker is followed by the label, then the amount")
+  assertRowsFit(rows, SIDEBAR_COLUMNS)
+})
+
+test("the ! marker costs one column, so it drops the row one column earlier", () => {
+  const plain = rowsAt({ ...STATUS, balance: BALANCE }, BALANCE_COLUMNS)
+  assert.equal(plain.lines[0], "余额 ¥110.00")
+  assert.equal(plain.lines.length, 4)
+
+  const marked = rowsAt({ ...STATUS, balance: { ...BALANCE, isAvailable: false } }, BALANCE_COLUMNS)
+  assert.equal(marked.lines.length, 3, "one column short: the row is dropped, not clipped")
+  for (const line of marked.lines) assert.ok(!line.startsWith("!"), `no half a balance row: ${line}`)
+})
+
+test("a balance row that cannot fit is dropped, never squeezed", () => {
+  for (const width of [8, 10, BALANCE_COLUMNS - 1]) {
+    const rows = rowsAt({ ...STATUS, balance: BALANCE }, width)
+    assert.ok(rows.lines.length <= 3, `usage only at ${width}`)
+    for (const line of rows.lines) assert.ok(!line.includes("¥110.00"), `no truncated balance: ${line}`)
+    assertRowsFit(rows, width)
+  }
+})
+
+test("the balance row keeps the action on the title row", () => {
+  // Four body rows leave no room for a second header row: the card would pass
+  // five rows at every width, so the action is forced inline instead.
+  for (let width = BALANCE_COLUMNS; width <= 60; width += 1) {
+    const rows = rowsAt({ ...STATUS, balance: BALANCE }, width)
+    assert.equal(rows.lines.length, 4, `balance shown at ${width}`)
+    assert.equal(rows.actionBelow, false, `action stays inline at ${width}`)
+    assertRowsFit(rows, width)
+  }
+})
+
+test("a USD balance renders the dollar sign the server reported", () => {
+  const rows = rowsAt({ ...STATUS, balance: { ...BALANCE, currency: "USD", totalBalance: "57.30" } }, 40)
+  assert.equal(rows.lines[0], "余额 $57.30")
+})
+
+test("a server amount is shown verbatim, never re-rounded", () => {
+  const rows = rowsAt({ ...STATUS, balance: { ...BALANCE, totalBalance: "0.00" } }, 40)
+  assert.equal(rows.lines[0], "余额 ¥0.00")
 })

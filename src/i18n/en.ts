@@ -85,6 +85,10 @@ export const en = {
   "usage.label.total": "Total",
   "usage.summary.line": "Search {search} · Fetch {fetch} · empty/failed {skipped} · {cost}",
 
+  // ---------- account balance (the card row and the desktop tooltip) ----------
+  "balance.label": "Balance",
+  "balance.breakdown": "Granted {granted} · Topped up {topped}",
+
   // ---------- errors ----------
   "error.missingKey":
     "DeepSeek API key is not configured. Set the DEEPSEEK_API_KEY environment variable " +
@@ -131,16 +135,31 @@ export type Messages = Record<Key, string>
  * Usage-row ladder, richest first. Each entry is a complete row, so nothing is
  * ever left dangling and no number is ever cut from its unit. `{label}` is the
  * localized period label; `Search`/`Fetch` stay English in every language.
+ *
+ * Order is by what the row is worth, then by width, so it runs strictly
+ * descending (36/33/25/17/11 columns for a typical fixture). The amount
+ * outranks the words and the counters: the old ladder kept a wider words-only
+ * row and hid the cost until 36 columns, which is the number this card exists
+ * for, so those two rungs are gone. The amount-only row (which carries no count
+ * at all) is composed in `status-view.ts` and tried just before the last rung —
+ * an amount is worth more than a lone counter, but the ladder itself only holds
+ * rows that carry counts.
  */
 export const enUsageForms: readonly string[] = [
   "{label}  Search {search}  Fetch {fetch}  {cost}",
   "{label} Search {search} Fetch {fetch} {cost}",
-  "{label}  Search {search}  Fetch {fetch}",
-  "{label} Search {search} Fetch {fetch}",
   "{label}  {search}S  {fetch}F  {cost}",
   "{label}  {search}S  {fetch}F",
-  "{label}  {search}S",
+  "{label} {search}S",
 ]
+
+/**
+ * Balance-row ladder, verbose first: the terminal takes the compact form when
+ * the verbose one does not fit, a surface with an unbounded budget (the desktop)
+ * always reads the first. `{amount}` already carries the currency symbol — the
+ * view model composes it, because only it knows the currency code.
+ */
+export const enBalanceForms: readonly string[] = ["Balance {amount}", "Bal. {amount}"]
 
 /** Missing-key hint ladder, richest first. The env var name is always present. */
 export const enHintForms: readonly string[] = [

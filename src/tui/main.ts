@@ -35,9 +35,14 @@ export default Plugin.define({
     // `status` takes a required first argument: plain JSON Schema degrades the
     // input type to `unknown`, and the host validates the payload against the
     // method's object schema, so an omitted input is rejected as invalid.
-    async function refresh() {
+    //
+    // `force` asks the server to re-probe the account balance instead of serving
+    // the cache; only a user action may spend that request. The timer and the
+    // `changed` event therefore send `{}` exactly — an older server rejects
+    // unknown input properties, so a stray `force: false` would break it.
+    async function refresh(force = false) {
       try {
-        const next = readStatus(await rpc.status({}))
+        const next = readStatus(await rpc.status(force ? { force: true } : {}))
         if (next) {
           setStatus(next)
           setError(undefined)
@@ -65,11 +70,12 @@ export default Plugin.define({
     }
 
     // The card labels the action it can really perform: switching the takeover
-    // when a status is known, retrying the read when it is not.
+    // when a status is known, retrying the read when it is not. A retry is a user
+    // action, so it refreshes the cached balance snapshot as well.
     function toggle() {
       const current = status()
       if (!current || error()) {
-        void refresh()
+        void refresh(true)
         return
       }
       void applyMode(current.mode === "deepseek" ? "native" : "deepseek")
@@ -88,7 +94,9 @@ export default Plugin.define({
         current: status()?.mode,
       })
       if (choice === undefined) return
-      if (choice === "refresh") await refresh()
+      // The dialog's refresh is an explicit "show me now", so it bypasses the
+      // server's balance cache; enabling/disabling refreshes through applyMode.
+      if (choice === "refresh") await refresh(true)
       else await applyMode(choice)
     }
 

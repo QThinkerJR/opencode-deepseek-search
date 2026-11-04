@@ -6,9 +6,9 @@
 // plugin or host imports, so every runtime can load this module.
 
 import { isLanguage, type Language } from "../rpc.ts"
-import { en, enHintForms, enUsageForms, type Key, type Messages } from "./en.ts"
-import { ja, jaHintForms, jaUsageForms } from "./ja.ts"
-import { zh, zhHintForms, zhUsageForms } from "./zh.ts"
+import { en, enBalanceForms, enHintForms, enUsageForms, type Key, type Messages } from "./en.ts"
+import { ja, jaBalanceForms, jaHintForms, jaUsageForms } from "./ja.ts"
+import { zh, zhBalanceForms, zhHintForms, zhUsageForms } from "./zh.ts"
 
 export type { Key, Messages }
 
@@ -19,12 +19,14 @@ export interface LocalePack {
   readonly usageForms: readonly string[]
   /** Missing-key hint ladder, richest first. */
   readonly hintForms: readonly string[]
+  /** Balance-row ladder, verbose first; `{amount}` carries the currency symbol. */
+  readonly balanceForms: readonly string[]
 }
 
 const PACKS: Readonly<Record<Language, LocalePack>> = {
-  en: { messages: en, usageForms: enUsageForms, hintForms: enHintForms },
-  ja: { messages: ja, usageForms: jaUsageForms, hintForms: jaHintForms },
-  "zh-CN": { messages: zh, usageForms: zhUsageForms, hintForms: zhHintForms },
+  en: { messages: en, usageForms: enUsageForms, hintForms: enHintForms, balanceForms: enBalanceForms },
+  ja: { messages: ja, usageForms: jaUsageForms, hintForms: jaHintForms, balanceForms: jaBalanceForms },
+  "zh-CN": { messages: zh, usageForms: zhUsageForms, hintForms: zhHintForms, balanceForms: zhBalanceForms },
 }
 
 export function pack(language: Language): LocalePack {

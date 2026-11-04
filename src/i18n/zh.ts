@@ -81,6 +81,10 @@ export const zh = {
   "usage.label.total": "累计",
   "usage.summary.line": "搜索 {search} · 抓取 {fetch} · 空/失 {skipped} · {cost}",
 
+  // ---------- 账户余额（卡片行与桌面端浮动提示） ----------
+  "balance.label": "余额",
+  "balance.breakdown": "赠金 {granted} · 充值 {topped}",
+
   // ---------- 错误信息 ----------
   "error.missingKey":
     "未配置 DeepSeek API Key：请设置环境变量 DEEPSEEK_API_KEY" +
@@ -113,16 +117,22 @@ export const zh = {
   "error.fetch.truncated": "[DeepSeek Fetch 截断提示] 原文共 {raw} 字符，超出上限 {max}，此处仅保留前 {max} 字符。",
 } satisfies Messages
 
-/** 用量行阶梯：从最完整到最紧凑；每一条都是完整的一行。 */
+/**
+ * 用量行阶梯：按价值从高到低排列，同等价值再按宽度从宽到窄；每一条都是完整的一行。
+ * 金额优先于文字与计数，因此删掉了不带金额的“纯文字”档——旧阶梯会为了更宽的
+ * 纯文字行而把金额藏到 36 列。只带金额的一行不含计数，改由 status-view.ts 组装，
+ * 并在最后一档之前尝试。
+ */
 export const zhUsageForms: readonly string[] = [
   "{label}  Search {search}  Fetch {fetch}  {cost}",
   "{label} Search {search} Fetch {fetch} {cost}",
-  "{label}  Search {search}  Fetch {fetch}",
-  "{label} Search {search} Fetch {fetch}",
   "{label}  {search}S  {fetch}F  {cost}",
   "{label}  {search}S  {fetch}F",
-  "{label}  {search}S",
+  "{label} {search}S",
 ]
+
+/** 余额行阶梯：完整写法在前；`{amount}` 已含货币符号。 */
+export const zhBalanceForms: readonly string[] = ["余额 {amount}"]
 
 /** 缺 key 提示阶梯：最后一档仍然指明要设置什么。 */
 export const zhHintForms: readonly string[] = [
