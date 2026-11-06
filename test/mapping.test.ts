@@ -1,6 +1,7 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
 import {
+  MAX_ORI_CHARS,
   MAX_QUERY_CHARS,
   MAX_URL_CHARS,
   NO_RESULTS,
@@ -57,6 +58,71 @@ test("mapSearchResults leaves time empty when the date is missing or invalid", (
 
 test("buildSearchBody never asks for full page content", () => {
   assert.deepEqual(buildSearchBody("q", 5), { query: "q", count: 5 })
+})
+
+test("buildSearchBody forwards trimmed extras and caps ori_question", () => {
+  assert.deepEqual(buildSearchBody("q", 5, { oriQuestion: " 用户的问题 ", localization: " 1.2.3.4 " }), {
+    query: "q",
+    count: 5,
+    ori_question: "用户的问题",
+    localization: "1.2.3.4",
+  })
+  assert.deepEqual(buildSearchBody("q", 5, { oriQuestion: "   ", localization: "" }), { query: "q", count: 5 })
+  assert.deepEqual(buildSearchBody("q", 5, {}), { query: "q", count: 5 })
+  const long = buildSearchBody("q", 5, { oriQuestion: "x".repeat(MAX_ORI_CHARS + 40) })
+  assert.equal(long.ori_question?.length, MAX_ORI_CHARS)
+})
+
+test("buildSearchBody never asks for full page content even with extras", () => {
+  const body = buildSearchBody("q", 5, { oriQuestion: "why", localization: "1.2.3.4" })
+  assert.equal("need_content" in body, false)
+})
+
+test("mapSearchResults maps valid quality signals and ignores junk", () => {
+  const [valid] = mapSearchResults({
+    results: [{ url: "https://example.com/a", authority: 3, rerank_score: 2.4 }],
+  })
+  assert.equal(valid?.authority, 3)
+  assert.equal(valid?.rerankScore, 2.4)
+
+  // -1 means "unknown" but is still a valid, parseable value.
+  const [unknown] = mapSearchResults({ results: [{ url: "https://example.com/b", authority: -1 }] })
+  assert.equal(unknown?.authority, -1)
+
+  const [junk] = mapSearchResults({
+    results: [{ url: "https://example.com/c", authority: 9, rerank_score: "high" }],
+  })
+  assert.equal(junk?.authority, undefined)
+  assert.equal(junk?.rerankScore, undefined)
+
+  const [stringAuthority] = mapSearchResults({ results: [{ url: "https://example.com/d", authority: "3" }] })
+  assert.equal(stringAuthority?.authority, undefined)
+
+  const [floatAuthority] = mapSearchResults({ results: [{ url: "https://example.com/e", authority: 2.5 }] })
+  assert.equal(floatAuthority?.authority, undefined)
+
+  const [outOfRange] = mapSearchResults({ results: [{ url: "https://example.com/f", rerank_score: 4 }] })
+  assert.equal(outOfRange?.rerankScore, undefined)
+
+  const [plain] = mapSearchResults({ results: [{ url: "https://example.com/g" }] })
+  assert.ok(plain)
+  assert.equal("authority" in plain, false)
+  assert.equal("rerankScore" in plain, false)
+})
+
+test("formatSearchResults marks authoritative results only", () => {
+  assert.equal(
+    formatSearchResults([{ url: "https://a", title: "A", content: "s", time: {}, authority: 3 }]),
+    "## [A](https://a) [authoritative]\n\ns",
+  )
+  assert.equal(
+    formatSearchResults([{ url: "https://a", title: "A", content: "s", time: {}, authority: 2 }]),
+    "## [A](https://a)\n\ns",
+  )
+  assert.equal(
+    formatSearchResults([{ url: "https://a", title: "A", content: "s", time: {}, authority: -1 }]),
+    "## [A](https://a)\n\ns",
+  )
 })
 
 test("mapFetchResponse assembles markdown and marks truncation", () => {

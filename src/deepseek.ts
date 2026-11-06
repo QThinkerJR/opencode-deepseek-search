@@ -21,7 +21,15 @@ export const BALANCE_TIMEOUT_MS = 10_000
 const RETRY_DELAY_MS = 1_000
 const RETRY_DELAY_MAX_MS = 5_000
 export const MAX_QUERY_CHARS = 128
+export const MAX_ORI_CHARS = 128
 export const MAX_URL_CHARS = 8192
+
+// Optional request hints forwarded verbatim to the Search API. They are omitted
+// from the body when unset, so the documented API defaults still apply.
+export interface SearchExtras {
+  oriQuestion?: string
+  localization?: string
+}
 
 // Docs: back off and retry on 408/429/5xx only; other 4xx must not be retried.
 const RETRYABLE = new Set([408, 429, 500, 502, 503, 504])
@@ -31,6 +39,10 @@ export interface SearchResult {
   title?: string
   content?: string
   time: { published?: number }
+  // Internal quality signals: only formatSearchResults consumes them. They are
+  // stripped from the tool output before it leaves the plugin.
+  authority?: number
+  rerankScore?: number
 }
 
 export interface FetchResult {
@@ -218,6 +230,8 @@ interface SearchRow {
   snippet?: unknown
   summary?: unknown
   date?: unknown
+  authority?: unknown
+  rerank_score?: unknown
 }
 
 export function mapSearchResults(data: unknown): SearchResult[] {
@@ -236,19 +250,52 @@ export function mapSearchResults(data: unknown): SearchResult[] {
           ? r.snippet
           : undefined
     const published = typeof r.date === "string" ? Date.parse(r.date) : Number.NaN
-    out.push({
+    const result: SearchResult = {
       url: r.url,
       title: typeof r.title === "string" && r.title.length > 0 ? r.title : undefined,
       content,
       time: Number.isFinite(published) ? { published } : {},
-    })
+    }
+    // `authority` is an integer in -1..4 (-1 means unknown) and `rerank_score`
+    // a finite number in 0..3. Anything else is dropped, and absent keys stay
+    // absent so the output object keeps its exact shape.
+    if (
+      typeof r.authority === "number" &&
+      Number.isInteger(r.authority) &&
+      r.authority >= -1 &&
+      r.authority <= 4
+    ) {
+      result.authority = r.authority
+    }
+    if (
+      typeof r.rerank_score === "number" &&
+      Number.isFinite(r.rerank_score) &&
+      r.rerank_score >= 0 &&
+      r.rerank_score <= 3
+    ) {
+      result.rerankScore = r.rerank_score
+    }
+    out.push(result)
   }
   return out
 }
 
-export function buildSearchBody(query: string, count: number): { query: string; count: number } {
+export function buildSearchBody(
+  query: string,
+  count: number,
+  extras?: SearchExtras,
+): { query: string; count: number; ori_question?: string; localization?: string } {
   // need_content stays false: full page text must never enter search results.
-  return { query, count }
+  // ori_question/localization are omitted entirely when unset or blank, so the
+  // request keeps the documented API defaults.
+  const ori = extras?.oriQuestion?.trim()
+  const localization = extras?.localization?.trim()
+  return {
+    query,
+    count,
+    ...(ori ? { ori_question: ori.slice(0, MAX_ORI_CHARS) } : {}),
+    ...(localization ? { localization } : {}),
+  }
 }
 
 export async function deepseekSearch(
@@ -257,10 +304,11 @@ export async function deepseekSearch(
   count: number,
   language: Language,
   signal?: AbortSignal,
+  extras?: SearchExtras,
 ): Promise<SearchResult[]> {
   const data = await postJson(
     SEARCH_PATH,
-    buildSearchBody(query, count),
+    buildSearchBody(query, count, extras),
     apiKey,
     SEARCH_TIMEOUT_MS,
     language,
@@ -379,10 +427,11 @@ export function formatSearchResults(results: readonly SearchResult[]): string {
   return results
     .map((result) => {
       const title = result.title ?? result.url
+      const authoritative = result.authority !== undefined && result.authority >= 3 ? " [authoritative]" : ""
       const published = result.time.published
         ? `\nPublished: ${new Date(result.time.published).toISOString()}`
         : ""
-      return `## [${title}](${result.url})${published}${result.content ? `\n\n${result.content}` : ""}`
+      return `## [${title}](${result.url})${authoritative}${published}${result.content ? `\n\n${result.content}` : ""}`
     })
     .join("\n\n")
 }

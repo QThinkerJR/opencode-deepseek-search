@@ -20,9 +20,11 @@ import {
   deepseekFetch,
   deepseekSearch,
   formatSearchResults,
+  MAX_ORI_CHARS,
   missingKeyMessage,
   validateQuery,
   validateUrl,
+  type SearchExtras,
   type SearchResult,
 } from "./deepseek.ts"
 import { resolveLanguage, t } from "./i18n/index.ts"
@@ -56,7 +58,12 @@ type ModeAction = "status" | Mode | "config"
 
 const SEARCH_TOOL_DESCRIPTION =
   "Search the web using DeepSeek Search. Use this for current information beyond knowledge cutoff." +
-  `\n\nThe current year is ${new Date().getFullYear()}. Use this year when searching for recent information or current events.`
+  `\n\nThe current year is ${new Date().getFullYear()}. Use this year when searching for recent information or current events.` +
+  "\n\nThe query supports search operators (they count toward the 128-character limit): " +
+  "site:github.com limits results to a site (combine with OR, e.g. site:github.com OR site:npmjs.com); " +
+  '-site:example.com excludes a site; bare word or -"quoted phrase" excludes matches; ' +
+  '"exact phrase" matches exactly; lang:zh,en limits languages; ' +
+  "after:2025-01-01 and before:2026 limit by publish date. Combine several operators in one query."
 
 // Pure parser: the caller decides how to surface an invalid value (tool error
 // vs. RPC result), so the message can be localized at that call site.
@@ -128,6 +135,7 @@ export default Plugin.define({
     const count = int(opt.count, 5, 1, 50)
     const fetchMaxChars = int(opt.fetchMaxChars, 30_000, 500, 200_000)
     const pricePerThousand = int(opt.pricePerThousand, 5, 0, 10_000)
+    const localization = str(opt.localization)
 
     // ctx.storage offers no compare-and-swap, so every read-modify-write goes
     // through this single in-process chain. Stats must never break a search, so
@@ -158,11 +166,40 @@ export default Plugin.define({
       }).catch(() => {})
     }
 
-    const runSearch = async (query: string, signal: AbortSignal): Promise<SearchResult[]> => {
+    // Best-effort capture of each session's most recent user prompt, sent as the
+    // DeepSeek `ori_question` intent hint. Clamped here at capture time so long
+    // pasted prompts cannot inflate the cache; empty prompts never overwrite a
+    // stored value. The map is capped, and JS Map re-assignment keeps insertion
+    // order, so eviction drops the oldest session.
+    const ORI_SESSION_CAP = 64
+    const oriBySession = new Map<string, string>()
+    let promptHook: { dispose: () => Promise<void> } | undefined
+    try {
+      promptHook = await ctx.session.hook("prompt", (p) => {
+        const text = p.prompt?.text?.trim()
+        if (!text) return
+        if (oriBySession.size >= ORI_SESSION_CAP && !oriBySession.has(p.sessionID)) {
+          const oldest = oriBySession.keys().next().value
+          if (oldest !== undefined) oriBySession.delete(oldest)
+        }
+        oriBySession.set(p.sessionID, text.slice(0, MAX_ORI_CHARS))
+      })
+    } catch (e) {
+      console.error(
+        `[deepseek-search] prompt hook unavailable; ori_question will be omitted ` +
+          `(${e instanceof Error ? e.message : String(e)})`,
+      )
+    }
+
+    const runSearch = async (
+      query: string,
+      signal: AbortSignal,
+      extras?: SearchExtras,
+    ): Promise<SearchResult[]> => {
       const problem = validateQuery(query, language)
       if (problem) throw new Error(problem)
       try {
-        const results = await deepseekSearch(query, apiKey, count, language, signal)
+        const results = await deepseekSearch(query, apiKey, count, language, signal, extras)
         tally(results.length > 0 ? "search" : "empty")
         return results
       } catch (e) {
@@ -176,7 +213,11 @@ export default Plugin.define({
       editor.add({
         id: PROVIDER_ID,
         name: "DeepSeek Search",
-        execute: async (input, context) => runSearch(input?.query ?? "", context.signal),
+        execute: async (input, context) => {
+          // This provider-fallback context carries no sessionID, so `ori_question`
+          // is omitted here by design (see plan D2).
+          return runSearch(input?.query ?? "", context.signal, { localization })
+        },
       })
       if (mode === "deepseek") editor.default.set(PROVIDER_ID)
     })
@@ -205,9 +246,16 @@ export default Plugin.define({
       })
       // Mirror the built-in tool's progress update so long searches are not silent.
       await context.progress({ provider: PROVIDER_ID })
-      const results = await runSearch(query, context.signal)
+      const oriQuestion = oriBySession.get(context.sessionID)
+      const results = await runSearch(query, context.signal, { oriQuestion, localization })
       return {
-        output: { provider: PROVIDER_ID, results },
+        output: {
+          provider: PROVIDER_ID,
+          // Project back to the built-in tool's declared result shape: internal
+          // quality fields (authority/rerankScore) stay out of the tool output.
+          results: results.map((r) => ({ url: r.url, title: r.title, content: r.content, time: r.time })),
+        },
+        // Rendered from the full objects: the [authoritative] marker needs authority.
         content: formatSearchResults(results),
         metadata: { provider: PROVIDER_ID },
       }
@@ -462,7 +510,8 @@ export default Plugin.define({
     console.error(
       `[deepseek-search] loaded: mode=${mode} source=${overrideMode ? "override" : "config"} ` +
         `apiKey=${apiKey ? "present" : "MISSING"} count=${count} ` +
-        `searchTool=${searchToolPatched ? "deepseek" : "untouched"}`,
+        `searchTool=${searchToolPatched ? "deepseek" : "untouched"}` +
+        ` localization=${localization ? "set" : "unset"}`,
     )
     if (!apiKey) console.error(`[deepseek-search] ${missingKeyMessage("en")}`)
     if (overrideMode && overrideMode !== configMode)
@@ -475,5 +524,9 @@ export default Plugin.define({
         `[deepseek-search] warning: built-in ${SEARCH_TOOL} tool not found; search still uses the built-in backend. ` +
           `Set "websearch": { "provider": "${PROVIDER_ID}" } in opencode.jsonc to force the route.`,
       )
+
+    return async () => {
+      await promptHook?.dispose()
+    }
   },
 })
