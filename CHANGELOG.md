@@ -3,6 +3,21 @@
 All notable changes to this package. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the version numbers follow [Semantic Versioning](https://semver.org/).
 
+## [0.4.0] - 2026-11-06
+
+### Added
+
+- **`localization` option**: an optional IP address sent as the Search API's `localization` field so results favor that
+  region; blank or unset omits the field entirely.
+- **Query operators in the rerouted tool's description**: the model is now told about `site:` (one site, or several
+  joined with `OR`), `-site:`, `-word` / `-"exact phrase"`, `"exact phrase"`, `lang:zh,en` and
+  `after:2025-01-01` / `before:2026`, so it can filter inside the query; operators count toward the 128-character
+  query limit.
+- **`ori_question` passthrough (best effort)**: each search sends the session's most recent user input, trimmed and cut
+  to 128 characters, so the API can read the intent behind the query; when no input was captured the field is omitted.
+- **`[authoritative]` markers**: results whose `authority` is `3` or `4` (the API's 0–4 scale, where `−1` means unknown) get the marker after the
+  title in the rendered Markdown; the numeric scores themselves stay out of the result shape.
+
 ## [0.3.2] - 2026-11-04
 
 ### Added

@@ -1,6 +1,6 @@
 {
     "name": "@qthinker/opencode-deepseek-search",
-    "version": "0.3.2",
+    "version": "0.4.0",
     "description": "DeepSeek Search & Fetch for OpenCode V2: a switchable websearch backend, clean Markdown fetch, local usage/cost stats, and TUI + desktop sidebars",
     "type": "module",
     "license": "MIT",
